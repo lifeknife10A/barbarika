@@ -1,0 +1,23 @@
+schema_version: 1
+rule_id: 9f97782e-878a-42f9-babe-f70ef18bc9c7
+title: SSH brute force followed by successful authentication
+status: experimental
+category: iii
+description: >-
+  Detects at least 10 failed SSH authentication attempts from one normalized
+  source in 60 seconds followed by a successful SSH authentication from that
+  source. This first-slice rule does not yet assert privileged sudo execution.
+detection:
+  type: sequence
+  group_by: source
+  within_seconds: 60
+  steps:
+    - name: failed_ssh_authentication
+      match:
+        raw_message_regex: '(?i)sshd(?:\[\d+\])?:.*failed (?:password|publickey) for'
+      min_count: 10
+    - name: successful_ssh_authentication
+      match:
+        raw_message_regex: '(?i)sshd(?:\[\d+\])?:.*accepted (?:password|publickey) for'
+      min_count: 1
+

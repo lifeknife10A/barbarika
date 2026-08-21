@@ -1,0 +1,68 @@
+# Ten failures occur, but the success is 61 seconds after the first failure.
+# Only nine failures are inside the success event's 60-second lookback window.
+- event_id: 10000000-0000-4000-8000-000000000001
+  occurred_at: 2026-08-22T11:00:00Z
+  detected_at: 2026-08-22T11:00:01Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[5101]: Failed password for analyst from 198.51.100.8 port 52001 ssh2'
+  category: iii
+- event_id: 10000000-0000-4000-8000-000000000002
+  occurred_at: 2026-08-22T11:00:06Z
+  detected_at: 2026-08-22T11:00:07Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[5102]: Failed password for analyst from 198.51.100.8 port 52002 ssh2'
+  category: iii
+- event_id: 10000000-0000-4000-8000-000000000003
+  occurred_at: 2026-08-22T11:00:12Z
+  detected_at: 2026-08-22T11:00:13Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[5103]: Failed password for analyst from 198.51.100.8 port 52003 ssh2'
+  category: iii
+- event_id: 10000000-0000-4000-8000-000000000004
+  occurred_at: 2026-08-22T11:00:18Z
+  detected_at: 2026-08-22T11:00:19Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[5104]: Failed password for analyst from 198.51.100.8 port 52004 ssh2'
+  category: iii
+- event_id: 10000000-0000-4000-8000-000000000005
+  occurred_at: 2026-08-22T11:00:24Z
+  detected_at: 2026-08-22T11:00:25Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[5105]: Failed password for analyst from 198.51.100.8 port 52005 ssh2'
+  category: iii
+- event_id: 10000000-0000-4000-8000-000000000006
+  occurred_at: 2026-08-22T11:00:30Z
+  detected_at: 2026-08-22T11:00:31Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[5106]: Failed password for analyst from 198.51.100.8 port 52006 ssh2'
+  category: iii
+- event_id: 10000000-0000-4000-8000-000000000007
+  occurred_at: 2026-08-22T11:00:36Z
+  detected_at: 2026-08-22T11:00:37Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[5107]: Failed password for analyst from 198.51.100.8 port 52007 ssh2'
+  category: iii
+- event_id: 10000000-0000-4000-8000-000000000008
+  occurred_at: 2026-08-22T11:00:42Z
+  detected_at: 2026-08-22T11:00:43Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[5108]: Failed password for analyst from 198.51.100.8 port 52008 ssh2'
+  category: iii
+- event_id: 10000000-0000-4000-8000-000000000009
+  occurred_at: 2026-08-22T11:00:48Z
+  detected_at: 2026-08-22T11:00:49Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[5109]: Failed password for analyst from 198.51.100.8 port 52009 ssh2'
+  category: iii
+- event_id: 10000000-0000-4000-8000-000000000010
+  occurred_at: 2026-08-22T11:00:54Z
+  detected_at: 2026-08-22T11:00:55Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[5110]: Failed password for analyst from 198.51.100.8 port 52010 ssh2'
+  category: iii
+- event_id: 10000000-0000-4000-8000-000000000011
+  occurred_at: 2026-08-22T11:01:01Z
+  detected_at: 2026-08-22T11:01:02Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[5111]: Accepted publickey for analyst from 198.51.100.8 port 52011 ssh2'
+  category: iii

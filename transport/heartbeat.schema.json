@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:barbarika:schema:heartbeat:1",
+  "title": "Barbarika signed heartbeat payload v1",
+  "description": "Five-second heartbeat payload. The verified mTLS client certificate, not agent_id, is the authoritative agent identity.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "agent_id",
+    "boot_id",
+    "sequence",
+    "sent_at_utc",
+    "last_event_sequence",
+    "last_event_hash",
+    "agent_health",
+    "signature"
+  ],
+  "properties": {
+    "agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Informational identifier; receivers must bind identity to the verified mTLS client certificate."
+    },
+    "boot_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "sent_at_utc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "last_event_sequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "last_event_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hexadecimal SHA-256 digest."
+    },
+    "agent_health": {
+      "const": "healthy"
+    },
+    "signature": {
+      "type": "string",
+      "contentEncoding": "base64",
+      "minLength": 88,
+      "maxLength": 88,
+      "pattern": "^[A-Za-z0-9+/]{86}==$",
+      "description": "Base64-encoded 64-byte Ed25519 signature."
+    }
+  }
+}

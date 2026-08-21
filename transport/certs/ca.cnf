@@ -1,0 +1,16 @@
+[req]
+prompt = no
+distinguished_name = distinguished_name
+x509_extensions = v3_ca
+default_md = sha256
+
+[distinguished_name]
+CN = Barbarika Demo-Only Local CA
+O = Barbarika DEMO ONLY
+OU = Not Production PKI
+
+[v3_ca]
+basicConstraints = critical, CA:true, pathlen:0
+keyUsage = critical, keyCertSign, cRLSign
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always, issuer

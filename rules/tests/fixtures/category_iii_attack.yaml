@@ -1,0 +1,66 @@
+- event_id: 00000000-0000-4000-8000-000000000001
+  occurred_at: 2026-08-22T10:00:00Z
+  detected_at: 2026-08-22T10:00:01Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[4101]: Failed password for invalid user admin from 203.0.113.42 port 51001 ssh2'
+  category: iii
+- event_id: 00000000-0000-4000-8000-000000000002
+  occurred_at: 2026-08-22T10:00:05Z
+  detected_at: 2026-08-22T10:00:06Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[4102]: Failed password for invalid user admin from 203.0.113.42 port 51002 ssh2'
+  category: iii
+- event_id: 00000000-0000-4000-8000-000000000003
+  occurred_at: 2026-08-22T10:00:10Z
+  detected_at: 2026-08-22T10:00:11Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[4103]: Failed password for invalid user admin from 203.0.113.42 port 51003 ssh2'
+  category: iii
+- event_id: 00000000-0000-4000-8000-000000000004
+  occurred_at: 2026-08-22T10:00:15Z
+  detected_at: 2026-08-22T10:00:16Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[4104]: Failed password for invalid user admin from 203.0.113.42 port 51004 ssh2'
+  category: iii
+- event_id: 00000000-0000-4000-8000-000000000005
+  occurred_at: 2026-08-22T10:00:20Z
+  detected_at: 2026-08-22T10:00:21Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[4105]: Failed password for invalid user admin from 203.0.113.42 port 51005 ssh2'
+  category: iii
+- event_id: 00000000-0000-4000-8000-000000000006
+  occurred_at: 2026-08-22T10:00:25Z
+  detected_at: 2026-08-22T10:00:26Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[4106]: Failed password for invalid user admin from 203.0.113.42 port 51006 ssh2'
+  category: iii
+- event_id: 00000000-0000-4000-8000-000000000007
+  occurred_at: 2026-08-22T10:00:30Z
+  detected_at: 2026-08-22T10:00:31Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[4107]: Failed password for invalid user admin from 203.0.113.42 port 51007 ssh2'
+  category: iii
+- event_id: 00000000-0000-4000-8000-000000000008
+  occurred_at: 2026-08-22T10:00:35Z
+  detected_at: 2026-08-22T10:00:36Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[4108]: Failed password for invalid user admin from 203.0.113.42 port 51008 ssh2'
+  category: iii
+- event_id: 00000000-0000-4000-8000-000000000009
+  occurred_at: 2026-08-22T10:00:40Z
+  detected_at: 2026-08-22T10:00:41Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[4109]: Failed password for invalid user admin from 203.0.113.42 port 51009 ssh2'
+  category: iii
+- event_id: 00000000-0000-4000-8000-000000000010
+  occurred_at: 2026-08-22T10:00:45Z
+  detected_at: 2026-08-22T10:00:46Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[4110]: Failed password for invalid user admin from 203.0.113.42 port 51010 ssh2'
+  category: iii
+- event_id: 00000000-0000-4000-8000-000000000011
+  occurred_at: 2026-08-22T10:00:50Z
+  detected_at: 2026-08-22T10:00:51Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[4111]: Accepted password for admin from 203.0.113.42 port 51011 ssh2'
+  category: iii
