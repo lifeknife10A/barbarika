@@ -6,7 +6,6 @@ import (
 	"io"
 	"log"
 	"os"
-	"sync/atomic"
 	"time"
 
 	"barbarika-agent/pkg/models"
@@ -27,7 +26,7 @@ func NewFileTailer(source, filePath string) *FileTailer {
 }
 
 // StartTailing opens the log file and streams new lines to the output channel.
-func (t *FileTailer) StartTailing(ctx context.Context, outChan chan<- models.LogEvent, seqCounter *uint64) {
+func (t *FileTailer) StartTailing(ctx context.Context, outChan chan<- models.LogEvent, seq *SeqStore) {
 	log.Printf("[Tailer] Starting tailer for source '%s' at path: %s", t.Source, t.FilePath)
 
 	file, err := os.OpenFile(t.FilePath, os.O_RDONLY, 0644)
@@ -86,12 +85,12 @@ func (t *FileTailer) StartTailing(ctx context.Context, outChan chan<- models.Log
 				continue
 			}
 
-			// Increment global event sequence counter atomically
-			seq := atomic.AddUint64(seqCounter, 1)
+			// Next restart-durable, monotonic sequence number
+			seqNum := seq.Next()
 
 			// Create & normalize event
 			event := models.LogEvent{
-				Sequence:   seq,
+				Sequence:   seqNum,
 				Source:     t.Source,
 				Timestamp:  time.Now().UTC(),
 				RawContent: line,

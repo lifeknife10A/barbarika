@@ -207,23 +207,40 @@ tamper-evidence (`[FAIL]` after a row is mutated).
   is now the one authoritative evidence store, matching the architecture. The
   old NDJSON copy held no chain/`received_at`/verification and could drift out
   of sync with the DB.
+- **Restart-durable sequence + real boot_id (agent-side)**: the agent's sequence
+  is now persisted (`AGENT_SEQ_PATH`, reservation-based, monotonic across
+  restarts) and `boot_id` is a fresh v4 UUID per process start. This keeps
+  Sentry's per-agent hash chain intact across an agent restart (proven: seq
+  `[1,2,3,4,101,…]` across a restart, `verify_chain` PASS) instead of resetting
+  to 1 and colliding. Backend-independent — correct under either backend choice.
 
-## Next hardening (tracked so it isn't forgotten)
+## Next hardening
 
-1. **Forward the mTLS CN**: pinning uses `agent_id` in the direct demo because
-   uvicorn does not surface the peer cert to the app. Put a TLS-terminating edge
-   (or a small ASGI shim) in front that sets `X-Client-Cert-CN` from the verified
-   client cert, so identity is the certificate CN, not a JSON field. Also allow
-   pre-registering known keys instead of trust-on-first-use.
-2. **`GET /events` default `limit=100`**: fine for the dashboard's recent view,
-   but paginate (or raise the limit) for full history; `bench.py` passes an
-   explicit large `limit`.
-4. **Agent egress durability**: on a failed POST the agent logs and drops the
+### Backend-independent (agent-side) — small, safe to do anytime
+1. **Agent egress durability**: on a failed POST the agent logs and drops the
    event (no retry/spool, unlike the original `agent/` tree). Add a bounded
    retry/spool so a transient Sentry blip doesn't lose evidence.
-5. **Sequence continuity**: the agent's `sequence` resets on restart; Sentry keys
-   the chain on `(agent_id, sequence)`. Persist the counter or key the chain on
-   `boot_id` to avoid post-restart collisions.
-6. **Heartbeat pointer race**: the agent updates `LastSeq`/`LastHash` from the
+2. **Heartbeat pointer race**: the agent updates `LastSeq`/`LastHash` from the
    event goroutine while the heartbeat goroutine reads them (benign data race);
    guard with an atomic/mutex.
+
+### Backend-decision-dependent — staged behind the `sentry/` vs `SentryP/` choice
+These mostly re-add things the canonical `sentry/` scaffold already has, so
+they're only worth doing if we keep `SentryP/` (Option B):
+3. **At-rest protection + read auth**: `SentryP` stores/serves `raw_content`
+   and IPs in cleartext and `GET /events` is unauthenticated. `sentry/` already
+   does AES-GCM sealing + default masking.
+4. **Chain append lock + `received_at` in the preimage**: `SentryP` has no lock
+   around read-prev→compute→insert (concurrent POSTs can fork the chain) and the
+   hash preimage omits a Sentry receipt time (replays slot in). `sentry/` has
+   both.
+5. **Verify the heartbeat signature on receive** + **require-signature default**:
+   `SentryP` stores heartbeats without verifying, and accepts unsigned events by
+   default (`SENTRY_REQUIRE_SIGNATURE=1` to enforce). Unsigned events bypass key
+   pinning.
+6. **Forward the mTLS CN**: pinning uses `agent_id` in the direct demo because
+   uvicorn does not surface the peer cert to the app. Put a TLS edge in front
+   that sets `X-Client-Cert-CN`, so identity is the certificate CN, not a JSON
+   field. Also allow pre-registering known keys instead of trust-on-first-use.
+7. **`GET /events` default `limit=100`**: paginate (or raise) for full history;
+   `bench.py` passes an explicit large `limit`.

@@ -21,7 +21,7 @@ func main() {
 
 	// 1. Load configuration
 	cfg := config.LoadConfig()
-	log.Printf("[Config] Agent ID: %s | Sentry Endpoint: %s", cfg.AgentID, cfg.SentryBaseURL)
+	log.Printf("[Config] Agent ID: %s | Boot ID: %s | Sentry Endpoint: %s", cfg.AgentID, cfg.BootID, cfg.SentryBaseURL)
 
 	// 2. Initialize Ed25519 Signer (stable key persisted at cfg.AgentKeyPath so
 	//    Sentry can pin this identity's public key across restarts).
@@ -51,8 +51,11 @@ func main() {
 	// 4. Start 5-second Heartbeat Watchdog in background goroutine
 	go heartbeatWatcher.Start(ctx)
 
-	// 5. Start Log Collector Manager
-	collectorMgr := collector.NewManager(cfg)
+	// 5. Start Log Collector Manager (restart-durable sequence numbers)
+	collectorMgr, err := collector.NewManager(cfg)
+	if err != nil {
+		log.Fatalf("[Collector Error] Failed to open sequence store: %v", err)
+	}
 	collectorMgr.Start(ctx)
 
 	// Listen for OS Interrupts (Ctrl+C / kill -9)

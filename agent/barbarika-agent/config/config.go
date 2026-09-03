@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"fmt"
 	"os"
 	"time"
 )
@@ -10,6 +12,7 @@ type Config struct {
 	AgentID           string
 	BootID            string
 	AgentKeyPath      string
+	SeqStatePath      string
 	SentryBaseURL     string
 	HeartbeatInterval time.Duration
 	BatchFlushTimeout time.Duration
@@ -35,10 +38,19 @@ func LoadConfig() *Config {
 		nginxLogPath = "/var/log/nginx/access.log"
 	}
 
+	// A fresh boot_id per process start (unless pinned via env) so an agent
+	// restart is distinguishable — the heartbeat carries it, and it lets a
+	// receiver tell one boot's chain segment from another.
+	bootID := os.Getenv("BOOT_ID")
+	if bootID == "" {
+		bootID = newBootID()
+	}
+
 	return &Config{
 		AgentID:           getEnvOrDefault("AGENT_ID", "primary-srv-01"),
-		BootID:            getEnvOrDefault("BOOT_ID", "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"),
+		BootID:            bootID,
 		AgentKeyPath:      getEnvOrDefault("AGENT_KEY_PATH", "./agent_ed25519.key"),
+		SeqStatePath:      getEnvOrDefault("AGENT_SEQ_PATH", "./agent_seq.state"),
 		SentryBaseURL:     getEnvOrDefault("SENTRY_URL", "http://localhost:8000"),
 		HeartbeatInterval: 5 * time.Second,
 		BatchFlushTimeout: 2 * time.Second,
@@ -62,4 +74,16 @@ func getEnvOrDefault(key, defaultValue string) string {
 
 func isLinux() bool {
 	return os.Getenv("GOOS") == "linux"
+}
+
+// newBootID returns a random RFC 4122 v4 UUID string (schema-valid boot_id).
+func newBootID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// Extremely unlikely; fall back to a fixed but valid UUID.
+		return "00000000-0000-4000-8000-000000000000"
+	}
+	b[6] = (b[6] & 0x0f) | 0x40 // version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // variant 10
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
