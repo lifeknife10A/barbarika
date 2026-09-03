@@ -30,8 +30,7 @@ backend/
 │   └─ verify_chain.py       # CLI verifier – walks the DB and checks hashes
 │
 ├─ data/                     # runtime data (created on first run)
-│   ├─ barbarika.db           # SQLite DB (WAL mode)
-│   └─ evidence/             # NDJSON evidence files, one per day
+│   └─ barbarika.db           # SQLite DB (WAL mode) — single authoritative store
 │
 └─ requirements.txt           # fastapi, uvicorn, sqlalchemy, aiosqlite, pydantic
 ```
@@ -107,9 +106,9 @@ Expected output (with a single record):
 ```
 [PASS] 1 records verified, 0 tampering detected
 ```
-If you manually alter the SQLite row or the NDJSON file and run the script
-again, you’ll get a `[FAIL]` with details – that demonstrates the tamper‑evidence
-property.
+If you manually alter a stored SQLite row and run the script again, you’ll get a
+`[FAIL]` with details – that demonstrates the tamper‑evidence property. SQLite is
+the single authoritative store; there is no separate NDJSON copy.
 
 ---
 

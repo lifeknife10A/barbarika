@@ -2,7 +2,6 @@
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
-from pathlib import Path
 
 from .. import models, schemas
 from ..services import hash_chain, signatures, identity
@@ -111,13 +110,9 @@ def ingest_event(
     db.commit()
     db.refresh(db_event)
 
-    # Append the raw JSON line to the daily NDJSON file (append-only)
-    evidence_dir = Path(__file__).resolve().parents[2] / "data" / "evidence"
-    evidence_dir.mkdir(parents=True, exist_ok=True)
-    ndjson_path = evidence_dir / f"{datetime.utcnow().date()}.ndjson"
-    with ndjson_path.open("a", encoding="utf-8") as f:
-        f.write(event.json())
-        f.write("\n")
+    # NOTE: SQLite (WAL) is the single authoritative evidence store. The event's
+    # integrity is guaranteed by the append-only hash chain above; there is no
+    # second NDJSON copy to drift out of sync (see integration/CONTRACT.md).
 
     return schemas.EventOut(
         id=db_event.id,

@@ -203,6 +203,10 @@ tamper-evidence (`[FAIL]` after a row is mutated).
   dashboard/benchmark can read `/events` while the agent writes (was
   "database is locked"); verifier timestamp bug fixed (chain verifies clean);
   `SENTRY_DB_PATH` override for isolated tests.
+- **Single authoritative store**: dropped the NDJSON dual-write — SQLite (WAL)
+  is now the one authoritative evidence store, matching the architecture. The
+  old NDJSON copy held no chain/`received_at`/verification and could drift out
+  of sync with the DB.
 
 ## Next hardening (tracked so it isn't forgotten)
 
@@ -211,10 +215,7 @@ tamper-evidence (`[FAIL]` after a row is mutated).
    (or a small ASGI shim) in front that sets `X-Client-Cert-CN` from the verified
    client cert, so identity is the certificate CN, not a JSON field. Also allow
    pre-registering known keys instead of trust-on-first-use.
-2. **Single authoritative store**: Sentry currently *also* appends NDJSON
-   evidence (`SentryP/backend/data/evidence/*.ndjson`) alongside SQLite — the
-   architecture calls for one authoritative store. Drop the NDJSON dual-write.
-3. **`GET /events` default `limit=100`**: fine for the dashboard's recent view,
+2. **`GET /events` default `limit=100`**: fine for the dashboard's recent view,
    but paginate (or raise the limit) for full history; `bench.py` passes an
    explicit large `limit`.
 4. **Agent egress durability**: on a failed POST the agent logs and drops the
