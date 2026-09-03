@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import Column, Integer, String, DateTime, JSON, Text
+from sqlalchemy import Boolean, Column, Integer, String, DateTime, JSON, Text
 from .database import Base
 
 class Event(Base):
@@ -14,6 +14,9 @@ class Event(Base):
     payload = Column(JSON, nullable=False)
     prev_hash = Column(String, nullable=True)
     cur_hash = Column(String, nullable=False, index=True)
+    # Receive-side Ed25519 verification result (see services/signatures.py).
+    signature_verified = Column(Boolean, nullable=False, default=False)
+    signer_pubkey = Column(String, nullable=True)
 
 
 class Heartbeat(Base):

@@ -167,18 +167,26 @@ tamper-evidence (`[FAIL]` after a row is mutated).
 ## Done in this integration
 
 - **mTLS / TLS 1.3** wired end-to-end (agent client cert ⇄ Sentry, Jash's PKI).
+- **Receive-side Ed25519 verification**: Sentry verifies each event's signature
+  over the exact signed bytes (`services/signatures.py`), stores the result
+  (`signature_verified`, `signer_pubkey`, exposed in `EventOut`), and **rejects a
+  present-but-invalid signature with HTTP 400** (tampering). Unsigned events are
+  accepted unless `SENTRY_REQUIRE_SIGNATURE=1`. The mTLS benchmark proves the
+  real Go-agent signatures verify (201/201).
 - **Heartbeat contract sync**: the agent's heartbeat conforms to Jash's
   `heartbeat.schema.json` (Go test `TestHeartbeatConformsToJashSchema`) and a
   *received* heartbeat validates against Jash's Python parser in the benchmark.
 - **Sentry robustness**: SQLite `busy_timeout` + `synchronous=NORMAL` so the
   dashboard/benchmark can read `/events` while the agent writes (was
-  "database is locked"); verifier timestamp bug fixed (chain verifies clean).
+  "database is locked"); verifier timestamp bug fixed (chain verifies clean);
+  `SENTRY_DB_PATH` override for isolated tests.
 
 ## Next hardening (tracked so it isn't forgotten)
 
-1. **Verify Ed25519 on receive**: the agent already ships `agent_pubkey` +
-   `agent_signature` in `payload`; Sentry can verify before chaining, and bind
-   identity to the verified client-cert CN.
+1. **Bind key to identity**: verification proves the presented key signed the
+   event, not *which* agent. Pin the agent's `signer_pubkey` (or bind it to the
+   verified mTLS client-cert CN) so a valid signature from an unknown key is
+   rejected. The agent's key is also ephemeral per boot today — persist it.
 2. **Single authoritative store**: Sentry currently *also* appends NDJSON
    evidence (`SentryP/backend/data/evidence/*.ndjson`) alongside SQLite — the
    architecture calls for one authoritative store. Drop the NDJSON dual-write.

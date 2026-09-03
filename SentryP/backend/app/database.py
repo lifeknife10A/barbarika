@@ -1,11 +1,13 @@
+import os
 from pathlib import Path
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = BASE_DIR / "data"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-DB_PATH = DATA_DIR / "barbarika.db"
+# Allow tests / alternate deployments to redirect the DB without editing code.
+DB_PATH = Path(os.environ.get("SENTRY_DB_PATH", str(DATA_DIR / "barbarika.db")))
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 print(f"[DEBUG] Database path: {DB_PATH}")
 
 engine = create_engine(

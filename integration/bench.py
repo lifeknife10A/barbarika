@@ -70,6 +70,19 @@ def benchmark(ctx, host, port, base_url, auth_log: Path, n: int) -> None:
     print(f"[BENCH] total events stored: {total}")
 
 
+def check_signatures(ctx, host, port) -> None:
+    """Assert the real Go-agent Ed25519 signatures verified on Sentry's side."""
+    events = get_json(ctx, host, port, "/events?limit=1000000")
+    verified = [e for e in events if e.get("signature_verified")]
+    print(f"[SIG] {len(verified)}/{len(events)} stored events passed "
+          f"receive-side Ed25519 verification")
+    assert events, "no events stored"
+    assert len(verified) == len(events), "some agent-signed events failed verification"
+    sample = verified[0]
+    print(f"[SIG]   e.g. seq {sample['sequence']} {sample['event_type']} "
+          f"signer={sample['signer_pubkey'][:12]}…")
+
+
 def check_heartbeat_contract(repo: Path, n_waits: int = 40) -> None:
     """Validate a stored heartbeat against Jash's parser (transport/heartbeat.py)."""
     sys.path.insert(0, str(repo / "transport"))
@@ -128,6 +141,7 @@ def main() -> None:
     ctx = make_context(args.certs)
 
     benchmark(ctx, host, port, args.base_url, args.auth_log, args.n)
+    check_signatures(ctx, host, port)
     check_heartbeat_contract(args.repo)
 
 

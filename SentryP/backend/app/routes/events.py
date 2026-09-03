@@ -1,16 +1,20 @@
-﻿from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status
+﻿import os
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from pathlib import Path
 
 from .. import models, schemas
-from ..services import hash_chain
+from ..services import hash_chain, signatures
 from ..database import SessionLocal, engine, Base
 
 router = APIRouter()
 
 # Ensure tables are created
 Base.metadata.create_all(bind=engine)
+
+# Reject events that arrive without a signature when strict mode is on.
+REQUIRE_SIGNATURE = os.getenv("SENTRY_REQUIRE_SIGNATURE") == "1"
 
 def get_db():
     db = SessionLocal()
@@ -19,13 +23,34 @@ def get_db():
     finally:
         db.close()
 
+async def raw_json(request: Request) -> dict:
+    """The exact request body as a dict.
+
+    Ed25519 verification must run over the bytes the agent signed (notably the
+    wire timestamp string), which the parsed EventIn model would not reproduce.
+    FastAPI caches the body, so this and the EventIn parameter read the same one.
+    """
+    return await request.json()
+
 @router.post(
     "/events",
     response_model=schemas.EventOut,
     status_code=status.HTTP_201_CREATED,
     tags=["events"]
 )
-def ingest_event(event: schemas.EventIn, db: Session = Depends(get_db)):
+def ingest_event(
+    event: schemas.EventIn,
+    raw: dict = Depends(raw_json),
+    db: Session = Depends(get_db),
+):
+    # Receive-side Ed25519 verification over the exact signed bytes. A present-
+    # but-invalid signature means the event was altered in transit -> reject it.
+    verified, sig_status, signer_pubkey = signatures.verify_event_signature(raw)
+    if sig_status == signatures.INVALID:
+        raise HTTPException(status_code=400, detail="invalid event signature")
+    if sig_status == signatures.UNSIGNED and REQUIRE_SIGNATURE:
+        raise HTTPException(status_code=401, detail="event signature required")
+
     # Find the most recent event for this agent to get its hash
     prior = (
         db.query(models.Event)
@@ -62,6 +87,8 @@ def ingest_event(event: schemas.EventIn, db: Session = Depends(get_db)):
         payload=event.payload,
         prev_hash=prev_hash or None,
         cur_hash=cur_hash,
+        signature_verified=verified,
+        signer_pubkey=signer_pubkey,
     )
     db.add(db_event)
     db.commit()
@@ -85,6 +112,8 @@ def ingest_event(event: schemas.EventIn, db: Session = Depends(get_db)):
         payload=db_event.payload,
         prev_hash=db_event.prev_hash,
         cur_hash=db_event.cur_hash,
+        signature_verified=db_event.signature_verified,
+        signer_pubkey=db_event.signer_pubkey,
     )
 
 # Optional: GET endpoint to retrieve events (for testing/frontend)
