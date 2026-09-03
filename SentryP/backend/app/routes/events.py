@@ -35,22 +35,28 @@ def ingest_event(event: schemas.EventIn, db: Session = Depends(get_db)):
     )
     prev_hash = prior.cur_hash if prior else ""
 
+    # Canonical UTC, tz-naive timestamp so the hash matches after the value is
+    # read back from SQLite at verify time (SQLite drops tzinfo). Store the same
+    # canonical value we hash, so ingest and verification always agree.
+    ts_iso = hash_chain.to_utc_naive_iso(event.timestamp)
+    ts_stored = datetime.fromisoformat(ts_iso)
+
     # Build the dictionary that will be hashed (exclude hash fields)
     event_dict = {
         "agent_id": event.agent_id,
         "sequence": event.sequence,
-        "timestamp": event.timestamp.isoformat(),
+        "timestamp": ts_iso,
         "source": event.source,
         "event_type": event.event_type,
         "payload": event.payload,
     }
 
-    cur_hash = hash_chain.compute_hash(prev_hash, event.timestamp.isoformat(), event_dict)
+    cur_hash = hash_chain.compute_hash(prev_hash, ts_iso, event_dict)
 
     db_event = models.Event(
         agent_id=event.agent_id,
         sequence=event.sequence,
-        timestamp=event.timestamp,
+        timestamp=ts_stored,
         source=event.source,
         event_type=event.event_type,
         payload=event.payload,

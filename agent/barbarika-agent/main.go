@@ -65,6 +65,12 @@ func main() {
 				// Pretty log telemetry
 				log.Printf("[EVENT #%d] Source: %-6s | SHA-256: %s | Payload: %s",
 					event.Sequence, event.Source, event.Hash[:16]+"...", event.RawContent)
+
+				// Ship the event to Sentry (POST /events). This is the joining
+				// wire between the agent and Anuvrat's ingestion backend.
+				if err := egressClient.SendEvent(ctx, event); err != nil {
+					log.Printf("[Egress Error] %v", err)
+				}
 			}
 		}
 	}()
