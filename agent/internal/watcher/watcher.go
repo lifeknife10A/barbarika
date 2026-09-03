@@ -142,13 +142,13 @@ func (w *Watcher) addRecursive(root string) error {
 // isCanaryPath checks if a path falls within the canary directory or filename convention.
 func (w *Watcher) isCanaryPath(path string) bool {
 	if w.cfg.CanaryDir != "" {
-		canaryClean := filepath.Clean(w.cfg.CanaryDir)
-		pathClean := filepath.Clean(path)
-		if strings.HasPrefix(pathClean, canaryClean) {
+		canaryClean := strings.ToLower(filepath.Clean(w.cfg.CanaryDir))
+		pathClean := strings.ToLower(filepath.Clean(path))
+		if rel, err := filepath.Rel(canaryClean, pathClean); err == nil && !strings.HasPrefix(rel, "..") {
 			return true
 		}
 	}
-	base := filepath.Base(path)
+	base := strings.ToLower(filepath.Base(path))
 	return strings.Contains(base, ".canary") || strings.Contains(base, "canary_token")
 }
 
