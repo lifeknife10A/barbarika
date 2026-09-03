@@ -44,6 +44,37 @@ class TelemetryLossDisposition(str, Enum):
     CANDIDATE_CATEGORY_II_REVIEW_REQUIRED = "CANDIDATE_CATEGORY_II_REVIEW_REQUIRED"
 
 
+# Human-readable statutory label for a correlated telemetry-loss candidate
+# (Category (ii) of CERT-In Annexure I). Emitted only as a *candidate* that a
+# human must confirm — the watchdog never auto-confirms or files an incident.
+CANDIDATE_CATEGORY_II_LABEL = "Category (ii) — Compromise of critical systems / information"
+
+
+@dataclass(frozen=True, slots=True)
+class TelemetryLossAssessment:
+    """Full disposition of a telemetry-loss event.
+
+    ``HeartbeatWatchdog.assess_telemetry_loss`` returns only the bare disposition
+    enum. This richer result additionally carries the *proposed* statutory
+    clock-start (``proposed_noticed_at_utc``) that a downstream 6-hour reporting
+    clock needs, plus the statutory label and a human-readable reason.
+
+    A ``CANDIDATE_CATEGORY_II_REVIEW_REQUIRED`` assessment is never a confirmed
+    incident: ``requires_human_confirmation`` is ``True`` and
+    ``proposed_noticed_at_utc`` is a *proposed* awareness timestamp pending a
+    reviewer's sign-off, not an automatic filing trigger. An operational warning
+    carries neither a proposed ``noticed_at`` nor a statutory category.
+    """
+
+    disposition: TelemetryLossDisposition
+    loss_detected_at_utc: datetime
+    reason: str
+    requires_human_confirmation: bool
+    proposed_noticed_at_utc: datetime | None = None
+    statutory_category: str | None = None
+    latest_high_confidence_intrusion_at_utc: datetime | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class HeartbeatPayload:
     """Strict representation of ``heartbeat.schema.json``.
@@ -322,6 +353,47 @@ class HeartbeatWatchdog:
         if 0 <= age_seconds <= self.correlation_window_seconds:
             return TelemetryLossDisposition.CANDIDATE_CATEGORY_II_REVIEW_REQUIRED
         return TelemetryLossDisposition.OPERATIONAL_WARNING
+
+    def assess_telemetry_loss_detailed(
+        self,
+        *,
+        loss_detected_at_utc: datetime,
+        latest_high_confidence_intrusion_at_utc: datetime | None,
+    ) -> TelemetryLossAssessment:
+        """Classify telemetry loss and build the full escalation packet.
+
+        Wraps :meth:`assess_telemetry_loss` (which owns the state check and the
+        correlation-window logic) and adds the fields a statutory reporting
+        workflow consumes. A candidate Category (ii) result carries a *proposed*
+        ``noticed_at`` and always requires human confirmation; an operational
+        warning carries neither. This method still never confirms or files an
+        incident — it only describes the disposition.
+        """
+
+        disposition = self.assess_telemetry_loss(
+            loss_detected_at_utc=loss_detected_at_utc,
+            latest_high_confidence_intrusion_at_utc=latest_high_confidence_intrusion_at_utc,
+        )
+        if disposition is TelemetryLossDisposition.CANDIDATE_CATEGORY_II_REVIEW_REQUIRED:
+            return TelemetryLossAssessment(
+                disposition=disposition,
+                loss_detected_at_utc=loss_detected_at_utc,
+                reason=(
+                    "Host telemetry flatlined within "
+                    f"{self.correlation_window_seconds:g}s of high-confidence intrusion "
+                    "activity. Candidate Category (ii); requires human confirmation."
+                ),
+                requires_human_confirmation=True,
+                proposed_noticed_at_utc=loss_detected_at_utc,
+                statutory_category=CANDIDATE_CATEGORY_II_LABEL,
+                latest_high_confidence_intrusion_at_utc=latest_high_confidence_intrusion_at_utc,
+            )
+        return TelemetryLossAssessment(
+            disposition=disposition,
+            loss_detected_at_utc=loss_detected_at_utc,
+            reason="Telemetry drop without correlated intrusion evidence. Operational warning.",
+            requires_human_confirmation=False,
+        )
 
     def _elapsed(self, now_monotonic: float) -> float:
         self._validate_clock(now_monotonic)

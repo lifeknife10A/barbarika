@@ -69,7 +69,47 @@ export interface IncidentRecord {
   rule_name?: string;
 }
 
+/**
+ * UI-facing watchdog status. This is a *presentation* enum that flattens the
+ * transport module's two-part model (see `transport/heartbeat.py`):
+ *
+ *   backend WatchdogState            -> HEALTHY | TELEMETRY_LOSS
+ *   backend TelemetryLossDisposition -> OPERATIONAL_WARNING
+ *                                       | CANDIDATE_CATEGORY_II_REVIEW_REQUIRED
+ *
+ * The backend never emits a single "compromise" state and never auto-confirms
+ * one: `SUSPECTED_HOST_COMPROMISE` here is only the UI label for a
+ * TELEMETRY_LOSS that the watchdog flagged as a candidate Category (ii) pending
+ * mandatory human review. When wiring live backend telemetry into the UI, use
+ * `deriveWatchdogState()` below rather than mapping the states by hand.
+ */
 export type WatchdogState = 'HEALTHY' | 'TELEMETRY_LOSS' | 'SUSPECTED_HOST_COMPROMISE';
+
+/** Mirrors `WatchdogState` in `transport/heartbeat.py`. */
+export type BackendWatchdogState = 'HEALTHY' | 'TELEMETRY_LOSS';
+
+/** Mirrors `TelemetryLossDisposition` in `transport/heartbeat.py`. */
+export type BackendTelemetryLossDisposition =
+  | 'OPERATIONAL_WARNING'
+  | 'CANDIDATE_CATEGORY_II_REVIEW_REQUIRED';
+
+/**
+ * Collapse the backend's (state, disposition) pair into the UI `WatchdogState`.
+ * A telemetry loss correlated with recent intrusion evidence surfaces as a
+ * candidate Category (ii) — rendered as `SUSPECTED_HOST_COMPROMISE` — but it
+ * stays a review-required candidate, never an auto-confirmed incident. This is
+ * the single source of truth for that mapping when SSE integration lands.
+ */
+export function deriveWatchdogState(
+  state: BackendWatchdogState,
+  disposition?: BackendTelemetryLossDisposition | null,
+): WatchdogState {
+  if (state === 'HEALTHY') return 'HEALTHY';
+  if (disposition === 'CANDIDATE_CATEGORY_II_REVIEW_REQUIRED') {
+    return 'SUSPECTED_HOST_COMPROMISE';
+  }
+  return 'TELEMETRY_LOSS';
+}
 
 export interface NodeHealth {
   primary_agent: {

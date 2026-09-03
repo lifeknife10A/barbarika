@@ -29,11 +29,19 @@ surfaced — it is not a claim about production-grade compromise detection laten
 Generate short-lived, self-signed demo identities:
 
 ```sh
-./scripts/generate_demo_certs.sh
+./scripts/generate_demo_certs.sh          # needs openssl + bash
+# or, no openssl/bash required (e.g. on Windows):
+python cert_generator.py                  # add --force to rotate an existing set
 ```
 
-These certificates are **demo-only, not production PKI**. The script creates a local CA plus one
-server and one client identity under `certs/`; their private material is git-ignored. See
+Both tools are interchangeable: `cert_generator.py` reproduces the same OpenSSL profiles in
+`certs/*.cnf` (CA `CN=Barbarika Demo-Only Local CA`, server `CN=sentry.local` with
+`SAN=sentry.local,localhost,127.0.0.1` and `serverAuth`, client `CN=primary-srv-01` with
+`clientAuth`), so the demo mTLS command in `../sentry/README.md` works against either set.
+
+These certificates are **demo-only, not production PKI**. Each tool creates a local CA plus one
+server and one client identity under `certs/`; their private material is git-ignored, and both
+refuse to overwrite an existing set without an explicit force flag. See
 [`certs/README.md`](certs/README.md) for the trust and rotation boundaries. TLS 1.3 enforcement and
 network connections are intentionally not implemented here yet.
 

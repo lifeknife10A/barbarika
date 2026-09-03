@@ -10,6 +10,7 @@ from heartbeat import (
     HeartbeatPayload,
     HeartbeatValidationError,
     HeartbeatWatchdog,
+    TelemetryLossAssessment,
     TelemetryLossDisposition,
     WatchdogState,
 )
@@ -175,6 +176,46 @@ class HeartbeatWatchdogTests(unittest.TestCase):
                     latest_high_confidence_intrusion_at_utc=intrusion_at,
                 )
                 self.assertEqual(disposition, TelemetryLossDisposition.OPERATIONAL_WARNING)
+
+    def test_detailed_operational_warning_carries_no_statutory_clock(self) -> None:
+        watchdog = HeartbeatWatchdog()
+        watchdog.start(0.0)
+        watchdog.evaluate(15.0)
+        loss_at = datetime(2026, 8, 19, 10, 15, tzinfo=timezone.utc)
+
+        assessment = watchdog.assess_telemetry_loss_detailed(
+            loss_detected_at_utc=loss_at,
+            latest_high_confidence_intrusion_at_utc=None,
+        )
+        self.assertIsInstance(assessment, TelemetryLossAssessment)
+        self.assertEqual(assessment.disposition, TelemetryLossDisposition.OPERATIONAL_WARNING)
+        self.assertFalse(assessment.requires_human_confirmation)
+        self.assertIsNone(assessment.proposed_noticed_at_utc)
+        self.assertIsNone(assessment.statutory_category)
+
+    def test_detailed_candidate_proposes_noticed_at_and_requires_confirmation(self) -> None:
+        watchdog = HeartbeatWatchdog()
+        watchdog.start(0.0)
+        watchdog.evaluate(15.0)
+        loss_at = datetime(2026, 8, 19, 10, 15, tzinfo=timezone.utc)
+        intrusion_at = loss_at - timedelta(seconds=90)
+
+        assessment = watchdog.assess_telemetry_loss_detailed(
+            loss_detected_at_utc=loss_at,
+            latest_high_confidence_intrusion_at_utc=intrusion_at,
+        )
+        self.assertEqual(
+            assessment.disposition,
+            TelemetryLossDisposition.CANDIDATE_CATEGORY_II_REVIEW_REQUIRED,
+        )
+        # A candidate is never auto-confirmed: it proposes a clock-start but
+        # still demands a human reviewer's sign-off.
+        self.assertTrue(assessment.requires_human_confirmation)
+        self.assertEqual(assessment.proposed_noticed_at_utc, loss_at)
+        self.assertIn("Category (ii)", assessment.statutory_category)
+        self.assertEqual(
+            assessment.latest_high_confidence_intrusion_at_utc, intrusion_at
+        )
 
     def test_evaluation_requires_monitoring_baseline(self) -> None:
         watchdog = HeartbeatWatchdog()
