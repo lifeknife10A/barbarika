@@ -23,12 +23,14 @@ func main() {
 	cfg := config.LoadConfig()
 	log.Printf("[Config] Agent ID: %s | Sentry Endpoint: %s", cfg.AgentID, cfg.SentryBaseURL)
 
-	// 2. Initialize Ed25519 Signer
-	signer, err := crypto.NewSigner()
+	// 2. Initialize Ed25519 Signer (stable key persisted at cfg.AgentKeyPath so
+	//    Sentry can pin this identity's public key across restarts).
+	signer, err := crypto.LoadOrCreateSigner(cfg.AgentKeyPath)
 	if err != nil {
 		log.Fatalf("[Crypto Error] Failed to initialize Ed25519 keypair: %v", err)
 	}
-	log.Printf("[Crypto] Ed25519 Signer initialized. Agent Public Key: %s...", signer.PublicKeyBase64()[:16])
+	log.Printf("[Crypto] Ed25519 signer ready (key: %s). Agent Public Key: %s...",
+		cfg.AgentKeyPath, signer.PublicKeyBase64()[:16])
 
 	// 3. Initialize HTTP Egress Client & Heartbeat Watchdog
 	egressClient, err := egress.NewClient(cfg, signer)

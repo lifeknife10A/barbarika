@@ -105,15 +105,34 @@ cd SentryP && python -m backend.scripts.verify_chain   # → [PASS] N records �
 
 ## Configuration knobs
 
-| Side   | Knob                  | Default                   |
-|--------|-----------------------|---------------------------|
-| agent  | `SENTRY_URL`          | `http://localhost:8000`   |
-| agent  | `AGENT_ID`            | `primary-srv-01`          |
-| agent  | `BOOT_ID`             | fixed demo UUID           |
-| agent  | `SENTRY_CA_CERT`      | — (verify Sentry over TLS)   |
-| agent  | `SENTRY_CLIENT_CERT`  | — (agent client identity)    |
-| agent  | `SENTRY_CLIENT_KEY`   | — (agent client key)         |
-| sentry | uvicorn `--port`      | `8000` (canonical)        |
+| Side   | Knob                       | Default                   |
+|--------|----------------------------|---------------------------|
+| agent  | `SENTRY_URL`               | `http://localhost:8000`   |
+| agent  | `AGENT_ID`                 | `primary-srv-01`          |
+| agent  | `BOOT_ID`                  | fixed demo UUID           |
+| agent  | `AGENT_KEY_PATH`           | `./agent_ed25519.key` (stable signing key) |
+| agent  | `SENTRY_CA_CERT`           | — (verify Sentry over TLS)   |
+| agent  | `SENTRY_CLIENT_CERT`       | — (agent client identity)    |
+| agent  | `SENTRY_CLIENT_KEY`        | — (agent client key)         |
+| sentry | uvicorn `--port`           | `8000` (canonical)        |
+| sentry | `SENTRY_CLIENT_CN_HEADER`  | `x-client-cert-cn` (authoritative identity) |
+| sentry | `SENTRY_REQUIRE_SIGNATURE` | off (`1` rejects unsigned events) |
+| sentry | `SENTRY_DB_PATH`           | `SentryP/data/barbarika.db` |
+
+## Key-to-identity binding
+
+Signature verification proves the *presented* key signed the event; binding
+proves it is the *expected* key for that identity:
+
+- **Identity** = the verified mTLS client-cert CN when a TLS edge forwards it
+  (`X-Client-Cert-CN`, authoritative), otherwise the event's `agent_id` (demo
+  fallback; still gated by the mTLS transport). Set via `SENTRY_CLIENT_CN_HEADER`.
+- **Pinning (TOFU)** — the first verified key seen for an identity is pinned in
+  the `agent_keys` table. A later event for that identity presenting a *different*
+  key is rejected with **HTTP 409** (impersonation / key swap), even though its
+  own signature is valid.
+- The agent persists its Ed25519 key at `AGENT_KEY_PATH`, so the pin survives
+  restarts. Each event carries `signer_identity` in `EventOut`.
 
 When `SENTRY_URL` is `https://…`, the agent builds a TLS 1.3 mutual-auth client
 from the three cert vars; otherwise it stays plaintext.
@@ -173,6 +192,10 @@ tamper-evidence (`[FAIL]` after a row is mutated).
   present-but-invalid signature with HTTP 400** (tampering). Unsigned events are
   accepted unless `SENTRY_REQUIRE_SIGNATURE=1`. The mTLS benchmark proves the
   real Go-agent signatures verify (201/201).
+- **Key-to-identity binding**: the agent's Ed25519 key is persisted
+  (`AGENT_KEY_PATH`) and pinned to its identity on first verified use; a rogue
+  key claiming a pinned identity is rejected with HTTP 409. Proven end-to-end
+  (all events pinned to `primary-srv-01`; impersonation → 409).
 - **Heartbeat contract sync**: the agent's heartbeat conforms to Jash's
   `heartbeat.schema.json` (Go test `TestHeartbeatConformsToJashSchema`) and a
   *received* heartbeat validates against Jash's Python parser in the benchmark.
@@ -183,10 +206,11 @@ tamper-evidence (`[FAIL]` after a row is mutated).
 
 ## Next hardening (tracked so it isn't forgotten)
 
-1. **Bind key to identity**: verification proves the presented key signed the
-   event, not *which* agent. Pin the agent's `signer_pubkey` (or bind it to the
-   verified mTLS client-cert CN) so a valid signature from an unknown key is
-   rejected. The agent's key is also ephemeral per boot today — persist it.
+1. **Forward the mTLS CN**: pinning uses `agent_id` in the direct demo because
+   uvicorn does not surface the peer cert to the app. Put a TLS-terminating edge
+   (or a small ASGI shim) in front that sets `X-Client-Cert-CN` from the verified
+   client cert, so identity is the certificate CN, not a JSON field. Also allow
+   pre-registering known keys instead of trust-on-first-use.
 2. **Single authoritative store**: Sentry currently *also* appends NDJSON
    evidence (`SentryP/backend/data/evidence/*.ndjson`) alongside SQLite — the
    architecture calls for one authoritative store. Drop the NDJSON dual-write.

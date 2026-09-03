@@ -9,3 +9,4 @@ used by the ``events`` router.
 # work without requiring an explicit import elsewhere.
 from . import hash_chain  # noqa: F401
 from . import signatures  # noqa: F401
+from . import identity  # noqa: F401

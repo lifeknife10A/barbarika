@@ -9,6 +9,7 @@ import (
 type Config struct {
 	AgentID           string
 	BootID            string
+	AgentKeyPath      string
 	SentryBaseURL     string
 	HeartbeatInterval time.Duration
 	BatchFlushTimeout time.Duration
@@ -37,6 +38,7 @@ func LoadConfig() *Config {
 	return &Config{
 		AgentID:           getEnvOrDefault("AGENT_ID", "primary-srv-01"),
 		BootID:            getEnvOrDefault("BOOT_ID", "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"),
+		AgentKeyPath:      getEnvOrDefault("AGENT_KEY_PATH", "./agent_ed25519.key"),
 		SentryBaseURL:     getEnvOrDefault("SENTRY_URL", "http://localhost:8000"),
 		HeartbeatInterval: 5 * time.Second,
 		BatchFlushTimeout: 2 * time.Second,

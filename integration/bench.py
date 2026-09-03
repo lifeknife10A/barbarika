@@ -11,7 +11,8 @@ agent is running with Jash's client certificate. It:
 
 Every request to Sentry presents the demo client certificate; a caller without
 one is rejected at the TLS layer (see the negative test in the shell script).
-Standard-library only (ssl + http.client) so there is nothing extra to install.
+Uses only ssl + http.client for transport; the impersonation check uses
+`cryptography`, which is already a Sentry dependency (runs in its venv).
 """
 
 from __future__ import annotations
@@ -83,6 +84,44 @@ def check_signatures(ctx, host, port) -> None:
           f"signer={sample['signer_pubkey'][:12]}…")
 
 
+def post_json(ctx, host, port, path, body: dict) -> int:
+    conn = http.client.HTTPSConnection(host, port, context=ctx, timeout=10)
+    try:
+        data = json.dumps(body).encode("utf-8")
+        conn.request("POST", path, body=data, headers={"Content-Type": "application/json"})
+        return conn.getresponse().status
+    finally:
+        conn.close()
+
+
+def check_identity_binding(ctx, host, port) -> None:
+    """All agent events bind to one identity; a rogue key for it is rejected."""
+    import base64
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    events = get_json(ctx, host, port, "/events?limit=1000000")
+    identities = {e.get("signer_identity") for e in events if e.get("signer_identity")}
+    assert identities == {"primary-srv-01"}, f"unexpected bound identities: {identities}"
+    print(f"[BIND] all {len(events)} events pinned to identity 'primary-srv-01'")
+
+    # A different key claiming the same identity (valid signature, wrong key).
+    rogue = Ed25519PrivateKey.generate()
+    ts, agent_id, seq, source, raw = "2026-09-04T00:00:00Z", "primary-srv-01", 10_000_000, "auth", "rogue"
+    preimage = f"{agent_id}|{seq}|{ts}|{source}|{raw}".encode("utf-8")
+    body = {
+        "agent_id": agent_id, "sequence": seq, "timestamp": ts, "source": source,
+        "event_type": "raw_log",
+        "payload": {
+            "raw_content": raw,
+            "agent_pubkey": base64.b64encode(rogue.public_key().public_bytes_raw()).decode(),
+            "agent_signature": base64.b64encode(rogue.sign(preimage)).decode(),
+        },
+    }
+    status = post_json(ctx, host, port, "/events", body)
+    print(f"[BIND] rogue key impersonating 'primary-srv-01' -> HTTP {status} (expected 409)")
+    assert status == 409, f"impersonation not rejected: got {status}"
+
+
 def check_heartbeat_contract(repo: Path, n_waits: int = 40) -> None:
     """Validate a stored heartbeat against Jash's parser (transport/heartbeat.py)."""
     sys.path.insert(0, str(repo / "transport"))
@@ -142,6 +181,7 @@ def main() -> None:
 
     benchmark(ctx, host, port, args.base_url, args.auth_log, args.n)
     check_signatures(ctx, host, port)
+    check_identity_binding(ctx, host, port)
     check_heartbeat_contract(args.repo)
 
 

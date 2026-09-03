@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from pathlib import Path
 
 from .. import models, schemas
-from ..services import hash_chain, signatures
+from ..services import hash_chain, signatures, identity
 from ..database import SessionLocal, engine, Base
 
 router = APIRouter()
@@ -40,6 +40,7 @@ async def raw_json(request: Request) -> dict:
 )
 def ingest_event(
     event: schemas.EventIn,
+    request: Request,
     raw: dict = Depends(raw_json),
     db: Session = Depends(get_db),
 ):
@@ -50,6 +51,21 @@ def ingest_event(
         raise HTTPException(status_code=400, detail="invalid event signature")
     if sig_status == signatures.UNSIGNED and REQUIRE_SIGNATURE:
         raise HTTPException(status_code=401, detail="event signature required")
+
+    # Key-to-identity binding: a verified key is pinned to its identity (mTLS CN
+    # when forwarded, else agent_id). A different key for a pinned identity is an
+    # impersonation attempt -> reject.
+    signer_identity = None
+    if verified:
+        signer_identity = identity.resolve_identity(
+            request.headers.get(identity.cn_header_name()), event.agent_id
+        )
+        ok, _bind_status = identity.bind_key(db, signer_identity, signer_pubkey)
+        if not ok:
+            raise HTTPException(
+                status_code=409,
+                detail=f"signing key does not match the key pinned for '{signer_identity}'",
+            )
 
     # Find the most recent event for this agent to get its hash
     prior = (
@@ -89,6 +105,7 @@ def ingest_event(
         cur_hash=cur_hash,
         signature_verified=verified,
         signer_pubkey=signer_pubkey,
+        signer_identity=signer_identity,
     )
     db.add(db_event)
     db.commit()
@@ -114,6 +131,7 @@ def ingest_event(
         cur_hash=db_event.cur_hash,
         signature_verified=db_event.signature_verified,
         signer_pubkey=db_event.signer_pubkey,
+        signer_identity=db_event.signer_identity,
     )
 
 # Optional: GET endpoint to retrieve events (for testing/frontend)
