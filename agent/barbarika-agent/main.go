@@ -31,7 +31,15 @@ func main() {
 	log.Printf("[Crypto] Ed25519 Signer initialized. Agent Public Key: %s...", signer.PublicKeyBase64()[:16])
 
 	// 3. Initialize HTTP Egress Client & Heartbeat Watchdog
-	egressClient := egress.NewClient(cfg, signer)
+	egressClient, err := egress.NewClient(cfg, signer)
+	if err != nil {
+		log.Fatalf("[Egress Error] Failed to initialize Sentry transport: %v", err)
+	}
+	transportMode := "plaintext HTTP"
+	if cfg.ClientCertPath != "" {
+		transportMode = "mTLS (TLS 1.3, client cert)"
+	}
+	log.Printf("[Egress] Sentry transport: %s -> %s", transportMode, cfg.SentryBaseURL)
 	heartbeatWatcher := egress.NewHeartbeatWatcher(cfg, egressClient)
 
 	// Context for graceful shutdown handling

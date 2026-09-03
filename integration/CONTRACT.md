@@ -5,10 +5,12 @@ Anay) and the Sentry ingestion backend (`SentryP/backend/`, Anuvrat). It is the
 single source of truth for how the two components talk, so neither side has to
 guess what the other sends or expects.
 
-> Scope: this wires the two teammates' actual implementations together over
-> plaintext HTTP first (the "they connect" milestone). mTLS is the next
-> hardening step — see **Next hardening** below. Endpoints and payloads do not
-> change when TLS is added; only the URL scheme and transport do.
+> Two transports, same endpoints and payloads:
+> - **Plaintext** (`http://…`) — simplest, `integration/run_e2e.sh`.
+> - **mTLS / TLS 1.3** (`https://…`) — Anay's agent presents Jash's client
+>   certificate; Anuvrat's Sentry requires it. `integration/run_mtls_e2e.sh`.
+>   This is the intended trust boundary: **Anay (agent) → Jash (mTLS) → Anuvrat
+>   (Sentry)**. See **mTLS transport** below.
 
 ## Topology
 
@@ -103,12 +105,55 @@ cd SentryP && python -m backend.scripts.verify_chain   # → [PASS] N records �
 
 ## Configuration knobs
 
-| Side   | Knob            | Default                   |
-|--------|-----------------|---------------------------|
-| agent  | `SENTRY_URL`    | `http://localhost:8000`   |
-| agent  | `AGENT_ID`      | `primary-srv-01`          |
-| agent  | `BOOT_ID`       | fixed demo UUID           |
-| sentry | uvicorn `--port`| `8000` (canonical)        |
+| Side   | Knob                  | Default                   |
+|--------|-----------------------|---------------------------|
+| agent  | `SENTRY_URL`          | `http://localhost:8000`   |
+| agent  | `AGENT_ID`            | `primary-srv-01`          |
+| agent  | `BOOT_ID`             | fixed demo UUID           |
+| agent  | `SENTRY_CA_CERT`      | — (verify Sentry over TLS)   |
+| agent  | `SENTRY_CLIENT_CERT`  | — (agent client identity)    |
+| agent  | `SENTRY_CLIENT_KEY`   | — (agent client key)         |
+| sentry | uvicorn `--port`      | `8000` (canonical)        |
+
+When `SENTRY_URL` is `https://…`, the agent builds a TLS 1.3 mutual-auth client
+from the three cert vars; otherwise it stays plaintext.
+
+## mTLS transport (Jash)
+
+The demo PKI comes from Jash's `transport/cert_generator.py` (or
+`generate_demo_certs.sh`): a demo CA, a server cert (`CN=sentry.local`, SAN
+includes `127.0.0.1`), and a client cert (`CN=primary-srv-01`).
+
+- **Sentry (server)** — start uvicorn with TLS + client cert required:
+  ```
+  uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 \
+    --ssl-keyfile  certs/demo-server.key --ssl-certfile certs/demo-server.crt \
+    --ssl-ca-certs certs/demo-ca.crt     --ssl-cert-reqs 2      # 2 = CERT_REQUIRED
+  ```
+  A client with no demo-CA-signed certificate never completes the handshake.
+- **Agent (client)** — set `SENTRY_URL=https://127.0.0.1:8000` plus the three
+  cert vars. Connecting to `127.0.0.1` matches the server cert SAN, so no
+  `/etc/hosts` edit is needed (use `sentry.local` if you prefer).
+
+Enforcement is at the TLS layer (transport-guaranteed authentication). Binding
+the verified client-cert CN to an application identity is the same follow-up the
+main `sentry/` documents; the agent already ships `agent_pubkey` +
+`agent_signature` in each event payload so receive-side Ed25519 verification can
+be added without a wire change.
+
+## Benchmark
+
+`integration/run_mtls_e2e.sh` runs the full flow and calls `integration/bench.py`
+to append N events, poll Sentry (over mTLS) until all N are stored, and report
+throughput — then validates a *received* heartbeat against Jash's own parser.
+Reference numbers on a laptop-class machine: **~200 events in <2s (~100/sec)**,
+chain `[PASS]`. Tune the load with `BENCH_N=500 integration/run_mtls_e2e.sh`.
+
+> Windows/macOS: the scripts are bash (Linux/macOS). On Windows, run the same
+> steps in PowerShell — generate certs with `python transport\cert_generator.py`,
+> start Sentry with the uvicorn command above, and launch the agent with the
+> `SENTRY_URL`/cert env vars set. `bench.py` is standard-library Python and runs
+> anywhere.
 
 ## Run the end-to-end demo
 
@@ -119,15 +164,33 @@ Starts Sentry, runs the agent against a mock log, injects an SSH attack, shows
 the events landing in Sentry, then verifies the chain (`[PASS]`) and demonstrates
 tamper-evidence (`[FAIL]` after a row is mutated).
 
-## Next hardening (not yet wired — tracked so it isn't forgotten)
+## Done in this integration
 
-1. **mTLS**: serve Sentry over TLS 1.3 with client-cert required (material exists
-   in `transport/`), switch `SENTRY_URL` to `https://…`. No payload changes.
-2. **Verify Ed25519 on receive**: the agent already ships `agent_pubkey` +
-   `agent_signature` in `payload`; Sentry can verify before chaining.
-3. **Single authoritative store**: Sentry currently *also* appends NDJSON
+- **mTLS / TLS 1.3** wired end-to-end (agent client cert ⇄ Sentry, Jash's PKI).
+- **Heartbeat contract sync**: the agent's heartbeat conforms to Jash's
+  `heartbeat.schema.json` (Go test `TestHeartbeatConformsToJashSchema`) and a
+  *received* heartbeat validates against Jash's Python parser in the benchmark.
+- **Sentry robustness**: SQLite `busy_timeout` + `synchronous=NORMAL` so the
+  dashboard/benchmark can read `/events` while the agent writes (was
+  "database is locked"); verifier timestamp bug fixed (chain verifies clean).
+
+## Next hardening (tracked so it isn't forgotten)
+
+1. **Verify Ed25519 on receive**: the agent already ships `agent_pubkey` +
+   `agent_signature` in `payload`; Sentry can verify before chaining, and bind
+   identity to the verified client-cert CN.
+2. **Single authoritative store**: Sentry currently *also* appends NDJSON
    evidence (`SentryP/backend/data/evidence/*.ndjson`) alongside SQLite — the
    architecture calls for one authoritative store. Drop the NDJSON dual-write.
-4. **Sequence continuity**: the agent's `sequence` resets on restart; Sentry keys
+3. **`GET /events` default `limit=100`**: fine for the dashboard's recent view,
+   but paginate (or raise the limit) for full history; `bench.py` passes an
+   explicit large `limit`.
+4. **Agent egress durability**: on a failed POST the agent logs and drops the
+   event (no retry/spool, unlike the original `agent/` tree). Add a bounded
+   retry/spool so a transient Sentry blip doesn't lose evidence.
+5. **Sequence continuity**: the agent's `sequence` resets on restart; Sentry keys
    the chain on `(agent_id, sequence)`. Persist the counter or key the chain on
    `boot_id` to avoid post-restart collisions.
+6. **Heartbeat pointer race**: the agent updates `LastSeq`/`LastHash` from the
+   event goroutine while the heartbeat goroutine reads them (benign data race);
+   guard with an atomic/mutex.

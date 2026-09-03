@@ -18,6 +18,12 @@ engine = create_engine(
 def _set_wal(dbapi_connection, _):
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA journal_mode=WAL;")
+    # Wait (up to 5s) for a competing writer instead of failing immediately with
+    # "database is locked" — the dashboard/benchmark read /events while the agent
+    # is writing, and WAL alone does not serialize concurrent writers.
+    cursor.execute("PRAGMA busy_timeout=5000;")
+    # WAL + NORMAL is the durable-enough, much faster commit mode for the demo.
+    cursor.execute("PRAGMA synchronous=NORMAL;")
     cursor.close()
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)

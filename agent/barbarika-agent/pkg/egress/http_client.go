@@ -3,10 +3,14 @@ package egress
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"barbarika-agent/config"
@@ -21,15 +25,55 @@ type Client struct {
 	httpClient *http.Client
 }
 
-// NewClient initializes the egress HTTP client.
-func NewClient(cfg *config.Config, signer *crypto.Signer) *Client {
-	return &Client{
-		cfg:    cfg,
-		signer: signer,
-		httpClient: &http.Client{
-			Timeout: 5 * time.Second,
-		},
+// NewClient initializes the egress HTTP client, building a TLS 1.3 mutual-auth
+// transport when SentryBaseURL is https (using Jash's transport/ certs).
+func NewClient(cfg *config.Config, signer *crypto.Signer) (*Client, error) {
+	httpClient, err := newHTTPClient(cfg)
+	if err != nil {
+		return nil, err
 	}
+	return &Client{
+		cfg:        cfg,
+		signer:     signer,
+		httpClient: httpClient,
+	}, nil
+}
+
+// newHTTPClient returns a plaintext client for http:// targets, or a TLS 1.3
+// mutual-auth client for https:// targets. The custom transport has no proxy,
+// so the agent connects directly to the isolated Sentry host (outbound-only).
+func newHTTPClient(cfg *config.Config) (*http.Client, error) {
+	timeout := 5 * time.Second
+	if !strings.HasPrefix(strings.ToLower(cfg.SentryBaseURL), "https") {
+		return &http.Client{Timeout: timeout}, nil
+	}
+
+	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS13}
+
+	if cfg.CACertPath != "" {
+		caPEM, err := os.ReadFile(cfg.CACertPath)
+		if err != nil {
+			return nil, fmt.Errorf("read CA cert %s: %w", cfg.CACertPath, err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caPEM) {
+			return nil, fmt.Errorf("no valid certificate in CA file %s", cfg.CACertPath)
+		}
+		tlsCfg.RootCAs = pool
+	}
+
+	if cfg.ClientCertPath != "" && cfg.ClientKeyPath != "" {
+		cert, err := tls.LoadX509KeyPair(cfg.ClientCertPath, cfg.ClientKeyPath)
+		if err != nil {
+			return nil, fmt.Errorf("load client keypair: %w", err)
+		}
+		tlsCfg.Certificates = []tls.Certificate{cert}
+	}
+
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: &http.Transport{TLSClientConfig: tlsCfg},
+	}, nil
 }
 
 // SendHeartbeat dispatches a 5-second Watchdog ping payload to Sentry.

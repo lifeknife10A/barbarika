@@ -14,6 +14,13 @@ type Config struct {
 	BatchFlushTimeout time.Duration
 	MaxBatchSize      int
 	LogSources        map[string]string
+
+	// mTLS transport (Jash's transport/ material). When SentryBaseURL is https,
+	// CACertPath verifies Sentry's server certificate and ClientCert/KeyPath
+	// present the agent's client identity for mutual auth. Empty => plaintext.
+	CACertPath     string
+	ClientCertPath string
+	ClientKeyPath  string
 }
 
 // LoadConfig initializes agent settings with sensible defaults and environment overrides.
@@ -38,6 +45,9 @@ func LoadConfig() *Config {
 			"auth":  authLogPath,
 			"nginx": nginxLogPath,
 		},
+		CACertPath:     os.Getenv("SENTRY_CA_CERT"),
+		ClientCertPath: os.Getenv("SENTRY_CLIENT_CERT"),
+		ClientKeyPath:  os.Getenv("SENTRY_CLIENT_KEY"),
 	}
 }
 
