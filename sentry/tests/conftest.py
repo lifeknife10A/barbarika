@@ -38,20 +38,30 @@ def client(modules):
 def signed_event():
     """Build a validly agent-signed /ingest body.
 
-    Mirrors agent/barbarika-agent: signs `event_type|source|occurred_at|
-    raw_message` with Ed25519 and puts base64 pubkey+signature in payload. Pass a
-    different `key` to simulate a second (rogue) signer for the same identity.
+    Mirrors agent/barbarika-agent: signs the full canonical event
+    `event_type|source|severity|category|occurred_at|detected_at|raw_message|
+    agent_sha256` with Ed25519 (see app/signatures.py :: canonical_preimage) and
+    puts base64 pubkey+signature in payload. Pass a different `key` to simulate a
+    second (rogue) signer for the same identity.
     """
+    from app import signatures
+
     default_key = Ed25519PrivateKey.generate()
 
     def build(event_type="ssh_failed_login", source="primary-srv-01/auth",
               severity="warn", category="iii",
               occurred_at="2026-09-04T12:00:01.123456789Z",
+              detected_at=None,
               raw_message="sshd[1]: Failed password for root from 203.0.113.7 port 22 ssh2",
+              agent_sha256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
               key: Ed25519PrivateKey | None = None):
+        detected = occurred_at if detected_at is None else detected_at
         k = key or default_key
         pub_b64 = base64.b64encode(k.public_key().public_bytes_raw()).decode("ascii")
-        preimage = f"{event_type}|{source}|{occurred_at}|{raw_message}".encode()
+        preimage = signatures.canonical_preimage(
+            event_type, source, severity, category,
+            occurred_at, detected, raw_message, agent_sha256,
+        )
         sig_b64 = base64.b64encode(k.sign(preimage)).decode("ascii")
         return {
             "event_type": event_type,
@@ -59,10 +69,11 @@ def signed_event():
             "severity": severity,
             "category": category,
             "occurred_at": occurred_at,
-            "detected_at": occurred_at,
+            "detected_at": detected,
             "raw_message": raw_message,
             "payload": {
                 "agent_id": "primary-srv-01",
+                "agent_sha256": agent_sha256,
                 "agent_pubkey": pub_b64,
                 "agent_signature": sig_b64,
             },

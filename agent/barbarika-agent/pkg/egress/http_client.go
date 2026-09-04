@@ -132,10 +132,16 @@ func (c *Client) SendEvent(ctx context.Context, ev models.LogEvent) error {
 	timestamp := ev.Timestamp.UTC().Format(time.RFC3339Nano)
 	source := c.cfg.AgentID + "/" + ev.Source
 	eventType := classifyEventType(ev.Source, ev.RawContent)
+	severity := severityFor(eventType)
+	category := ""
+	if cat := candidateCategory(eventType); cat != nil {
+		category = *cat
+	}
 
-	// Sign over the exact wire fields Sentry receives, so the receiver can
-	// reconstruct the preimage from the raw request and verify (see the CONTRACT).
-	signable := fmt.Sprintf("%s|%s|%s|%s", eventType, source, timestamp, ev.RawContent)
+	// Sign over the full canonical logical event Sentry receives (occurred_at ==
+	// detected_at on egress), so the receiver can reconstruct the preimage from
+	// the raw request and verify every security-relevant field (see the CONTRACT).
+	signable := canonicalSignable(eventType, source, severity, category, timestamp, timestamp, ev.RawContent, ev.Hash)
 	signature := c.signer.Sign([]byte(signable))
 
 	out := toSentryEvent(c.cfg.AgentID, timestamp, c.signer.PublicKeyBase64(), signature, ev)

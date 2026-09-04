@@ -68,7 +68,27 @@ Base URL: mTLS `https://127.0.0.1:8443` (demo) or dev-plaintext `http://…:8000
 | —                | `category`    | `candidateCategory(event_type)` — which rules evaluate it |
 | `Timestamp`      | `occurred_at`/`detected_at` | RFC3339 UTC |
 | `Sequence`/`Hash`| `payload.agent_sequence`/`agent_sha256` | provenance |
-| —                | `payload.agent_pubkey`/`agent_signature` | Ed25519 over `event_type\|source\|occurred_at\|raw_message` |
+| —                | `payload.agent_pubkey`/`agent_signature` | Ed25519 over the full canonical event (below) |
+
+### Authenticated fields (the Ed25519 preimage)
+
+The agent signs, and `sentry/` verifies over the raw body, this exact
+pipe-joined string (order + `|` separator fixed on both sides —
+`mapping.go :: canonicalSignable` ↔ `signatures.py :: canonical_preimage`):
+
+```
+event_type | source | severity | category | occurred_at | detected_at | raw_message | agent_sha256
+```
+
+An omitted `category` and an absent `agent_sha256` each serialize as the empty
+string. Because **every security-relevant field is signed**, a man-in-the-middle
+cannot strip `category` (which would suppress rule evaluation), downgrade
+`severity`, or swap the SHA-256 without invalidating the signature —
+`POST /ingest` rejects a present-but-altered event with **HTTP 400** before it is
+stored, so `signature_verified=True` now attests to all of these fields (not just
+four). `agent_sequence` and `agent_id` ride in `payload` for provenance/pinning
+but are outside the preimage (the mTLS identity, not a self-asserted field, binds
+the key — see Next #3).
 
 ### `candidateCategory` → detection
 
@@ -107,9 +127,12 @@ integration/run_mtls_e2e.sh   # mTLS + cert-less-rejected + detection + benchmar
   SSH brute-force rule fires an incident end-to-end (proven: 1 incident, 13 events).
 - **mTLS 1.3** with Jash's PKI; cert-less client rejected.
 - **Receive-side Ed25519 verification + key pinning (ported into `sentry/`)**:
-  `POST /ingest` verifies the signature over the raw body, rejects a present-but-
-  invalid signature (400), pins the verified key to the mTLS identity and rejects
-  a rogue key (409); `signature_verified`/`signer_identity` exposed in `EventOut`.
+  `POST /ingest` verifies the signature over the raw body **across the full
+  canonical event** (event_type, source, severity, category, both timestamps,
+  raw_message, agent_sha256 — so a stripped category or downgraded severity is
+  rejected, not silently stored `verified`), rejects a present-but-invalid
+  signature (400), pins the verified key to the mTLS identity and rejects a rogue
+  key (409); `signature_verified`/`signer_identity` exposed in `EventOut`.
   Proven end-to-end: 214/214 agent signatures verified, rogue → 409.
 - **Agent robustness**: restart-durable sequence + per-boot `boot_id`.
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from app import signatures
@@ -14,9 +15,26 @@ def test_valid_signature_verifies(signed_event):
     assert ok is True and status == signatures.VERIFIED and pub
 
 
-def test_tampered_field_fails_verification(signed_event):
+# Every security-relevant field is inside the signed preimage, so tampering with
+# any one of them must invalidate the signature (finding A: the "verified" flag
+# must cover severity/category/detected_at/agent_sha256, not just 4 fields).
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        pytest.param(lambda ev: ev.update(raw_message=ev["raw_message"].replace("Failed", "Accepted")), id="raw_message"),
+        pytest.param(lambda ev: ev.update(source="attacker/swapped"), id="source"),
+        pytest.param(lambda ev: ev.update(event_type="ssh_login"), id="event_type"),
+        pytest.param(lambda ev: ev.update(severity="info"), id="severity-downgrade"),
+        pytest.param(lambda ev: ev.update(category=None), id="category-strip"),
+        pytest.param(lambda ev: ev.update(category="x"), id="category-swap"),
+        pytest.param(lambda ev: ev.update(detected_at="2000-01-01T00:00:00Z"), id="detected_at"),
+        pytest.param(lambda ev: ev.update(occurred_at="2000-01-01T00:00:00Z"), id="occurred_at"),
+        pytest.param(lambda ev: ev["payload"].update(agent_sha256="0" * 64), id="agent_sha256"),
+    ],
+)
+def test_tampered_field_fails_verification(signed_event, mutate):
     ev = signed_event()
-    ev["raw_message"] = ev["raw_message"].replace("Failed", "Accepted")  # altered after signing
+    mutate(ev)  # altered after signing
     ok, status, _ = signatures.verify_event_signature(ev)
     assert ok is False and status == signatures.INVALID
 
@@ -40,6 +58,25 @@ def test_ingest_records_verified_and_pins_identity(client, signed_event):
 def test_ingest_rejects_tampered_signature(client, signed_event):
     ev = signed_event()
     ev["source"] = "attacker/swapped"  # break the signed preimage
+    resp = client.post("/ingest", json=ev)
+    assert resp.status_code == 400
+    assert "signature" in resp.json()["detail"]
+
+
+def test_ingest_rejects_category_strip(client, signed_event):
+    # MITM strips `category` to suppress rule evaluation: the signature now
+    # covers category, so the endpoint must reject it rather than store it
+    # signature_verified=True (finding A).
+    ev = signed_event()
+    ev.pop("category")
+    resp = client.post("/ingest", json=ev)
+    assert resp.status_code == 400
+    assert "signature" in resp.json()["detail"]
+
+
+def test_ingest_rejects_severity_downgrade(client, signed_event):
+    ev = signed_event()
+    ev["severity"] = "info"  # downgrade after signing
     resp = client.post("/ingest", json=ev)
     assert resp.status_code == 400
     assert "signature" in resp.json()["detail"]

@@ -67,14 +67,17 @@ def main() -> None:
     assert events and len(verified) == len(events), "some agent events failed verification"
 
     # A different key claiming the same identity (valid signature, wrong key).
+    # Sign the full canonical event (must match sentry/app/signatures.py).
     rogue = Ed25519PrivateKey.generate()
-    et, src = "ssh_failed_login", "primary-srv-01/auth"
+    et, src, sev, cat = "ssh_failed_login", "primary-srv-01/auth", "warn", "iii"
     occ, raw = "2026-09-04T00:00:00Z", "rogue attempt"
-    preimage = f"{et}|{src}|{occ}|{raw}".encode()
+    sha = "0" * 64
+    preimage = "|".join([et, src, sev, cat, occ, occ, raw, sha]).encode()
     body = {
-        "event_type": et, "source": src, "severity": "warn", "category": "iii",
+        "event_type": et, "source": src, "severity": sev, "category": cat,
         "occurred_at": occ, "detected_at": occ, "raw_message": raw,
         "payload": {
+            "agent_sha256": sha,
             "agent_pubkey": base64.b64encode(rogue.public_key().public_bytes_raw()).decode(),
             "agent_signature": base64.b64encode(rogue.sign(preimage)).decode(),
         },

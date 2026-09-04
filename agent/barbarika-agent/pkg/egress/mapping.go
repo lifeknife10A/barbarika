@@ -22,6 +22,21 @@ type SentryEvent struct {
 	Payload    map[string]interface{} `json:"payload"`
 }
 
+// canonicalSignable builds the exact byte string the agent signs and Sentry
+// re-derives (sentry/app/signatures.py :: canonical_preimage). It covers every
+// security-relevant field — event_type, source, severity, category, both
+// timestamps, the raw message, and the SHA-256 provenance hash — so a
+// man-in-the-middle cannot strip the category (suppressing rule evaluation),
+// downgrade the severity, or swap the hash while the signature still verifies.
+// A nil/empty category serializes as "" (matching Python's None -> ""). The
+// field order and "|" separator MUST stay byte-for-byte identical on both sides.
+func canonicalSignable(eventType, source, severity, category, occurredAt, detectedAt, rawMessage, sha256 string) string {
+	return strings.Join([]string{
+		eventType, source, severity, category,
+		occurredAt, detectedAt, rawMessage, sha256,
+	}, "|")
+}
+
 // classifyEventType maps a raw log line to the canonical event_type Sentry stores.
 func classifyEventType(source, raw string) string {
 	r := strings.ToLower(raw)
