@@ -134,7 +134,7 @@ func (c *Client) SendEvent(ctx context.Context, ev models.LogEvent) error {
 	eventType := classifyEventType(ev.Source, ev.RawContent)
 	severity := severityFor(eventType)
 	category := ""
-	if cat := candidateCategory(eventType); cat != nil {
+	if cat := candidateCategory(eventType, ev.RawContent); cat != nil {
 		category = *cat
 	}
 

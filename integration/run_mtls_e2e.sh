@@ -93,6 +93,15 @@ if grep -q "203.0.113.7" "${DB}" 2>/dev/null; then echo "  LEAK: cleartext IP in
 banner "Detection (GET /incidents over mTLS)"
 mtls "${BASE_URL}/incidents" | python3 -c "import sys,json;d=json.load(sys.stdin);assert d,'no incident fired';print(f'  {len(d)} incident(s): {d[0][\"category\"]} — {d[0][\"rule_title\"]} ({len(d[0][\"event_ids\"])} events)')"
 
+banner "Injecting Category (x): one app-layer exploit line (sqlmap UNION SELECT)"
+# The agent tags this nginx line 'x' (candidateCategory); the single-line rule
+# category_x_appserver_attack.yaml then fires. Proves the merged rules pack + the
+# nginx candidateCategory routing light up a second category end-to-end.
+NGINX="${WORK}/mock_logs/nginx_access.log"
+printf '203.0.113.66 - - [19/Aug/2026:10:17:00 +0000] "GET /shop/item?id=1%%20UNION%%20SELECT%%20username,password%%20FROM%%20users-- HTTP/1.1" 500 512 "-" "sqlmap/1.7.2#stable (https://sqlmap.org)"\n' >> "${NGINX}"
+sleep 4
+mtls "${BASE_URL}/incidents" | python3 -c "import sys,json;d=json.load(sys.stdin);xs=[i for i in d if i['category']=='x'];assert xs,'no Category (x) incident fired';print(f'  Category (x) incident: {xs[0][\"rule_title\"][:64]} ({len(xs[0][\"event_ids\"])} event)')"
+
 banner "Benchmark: ${BENCH_N} events agent -> mTLS -> sentry/"
 python3 "${SCRIPT_DIR}/bench.py" --auth-log "${AUTH}" --db "${DB}" -n "${BENCH_N}"
 

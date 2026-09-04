@@ -81,6 +81,12 @@ if grep -q "203.0.113.7" "${DB}" 2>/dev/null; then echo "  LEAK: cleartext IP in
 banner "Detection (GET /incidents)"
 q "${BASE_URL}/incidents" | python3 -c "import sys,json;d=json.load(sys.stdin);assert d,'no incident fired';print(f'  {len(d)} incident(s): {d[0][\"category\"]} — {d[0][\"rule_title\"]} ({len(d[0][\"event_ids\"])} events)')"
 
+banner "Injecting Category (x): one app-layer exploit line (sqlmap UNION SELECT)"
+# Agent tags this nginx line 'x' (candidateCategory); the single-line rule fires.
+printf '203.0.113.66 - - [19/Aug/2026:10:17:00 +0000] "GET /shop/item?id=1%%20UNION%%20SELECT%%20username,password%%20FROM%%20users-- HTTP/1.1" 500 512 "-" "sqlmap/1.7.2#stable (https://sqlmap.org)"\n' >> "${WORK}/mock_logs/nginx_access.log"
+sleep 4
+q "${BASE_URL}/incidents" | python3 -c "import sys,json;d=json.load(sys.stdin);xs=[i for i in d if i['category']=='x'];assert xs,'no Category (x) incident fired';print(f'  Category (x) incident: {xs[0][\"rule_title\"][:64]} ({len(xs[0][\"event_ids\"])} event)')"
+
 banner "Verify hash chain"
 ( cd "${SENTRY_DIR}" && SENTRY_DB_PATH="${DB}" SENTRY_KEY_PATH="${KEY}" uv run python scripts/verify_chain.py --db "${DB}" )
 
