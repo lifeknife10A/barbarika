@@ -1,0 +1,35 @@
+schema_version: 1
+rule_id: fa172689-d898-49b5-9bc9-221d3ef191e0
+title: Website intrusion — web exploit request correlated with a web-root file change
+status: stable
+category: iv
+description: >-
+  Detects defacement / unauthorised website change by correlating two independent
+  telemetry streams within a 120-second window: (1) an exploit-pattern HTTP
+  request in the nginx access log (scanner user-agent, webshell upload, admin or
+  config path probe, traversal), and (2) a file-integrity event showing a
+  create / write / rename / delete under the web root (/var/www) reported by the
+  agent's filesystem watcher. Per the project audit, the nginx log pattern alone
+  is not sufficient evidence for Category (iv); the file-integrity signal is
+  required, which is why this is a correlation rule and not a single-log rule.
+detection:
+  type: correlation
+  within_seconds: 120
+  arms:
+    - name: web_exploit_request
+      match:
+        source_regex: '/nginx(?:\b|$)'
+        raw_message_regex: >-
+          (?ix)
+          "\s*(?:GET|POST|PUT)\s+[^"]*(?:
+            /wp-login\.php | /wp-admin/ | /xmlrpc\.php | /administrator/
+            | /\.env(?:\b|$) | /\.git/ | /wp-config\.php
+            | /(?:shell|c99|r57|wso|cmd|up|upload)\w*\.php\b
+            | /uploads?/[^"\s]*\.ph(?:p|tml)\b
+            | (?:\.\./){2,}
+          )
+          | \bsqlmap\b | \bnikto\b | \bnuclei\b | \bwpscan\b
+    - name: web_root_file_change
+      match:
+        source_regex: '/fim(?:\b|$)'
+        raw_message_regex: '^FIM\s+(?:CREATE|WRITE|RENAME|REMOVE)\s+/var/www/'

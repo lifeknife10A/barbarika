@@ -1,0 +1,35 @@
+schema_version: 1
+rule_id: 21cd86fa-cfd5-4296-b6a6-870fef2a9c2d
+title: Application-layer exploitation attempt against the web/app tier
+status: stable
+category: x
+description: >-
+  Detects an unambiguous application-layer attack against the web/app server in a
+  single nginx access-log line: SQL injection (UNION SELECT, boolean tautology),
+  path traversal / local file disclosure (/etc/passwd, ../../), source or secret
+  disclosure (/.git/, /.env), command injection in a parameter, or a request
+  issued by a known offensive scanner (sqlmap, nikto, nuclei, wpscan, masscan).
+  Payload whitespace may be raw, "+" or "%20"-encoded and quotes may be
+  "%27"-encoded. One such request is enough to raise a Category (x) candidate;
+  benign traffic that merely contains the word "union", a "select" path segment
+  or a numeric id parameter does not match.
+detection:
+  type: single
+  match:
+    source_regex: '/nginx(?:\b|$)'
+    raw_message_regex: >-
+      (?ix)
+      (?<![a-z]) union (?: [\s+] | %20 | /\*\*/ )+ (?: all (?: [\s+] | %20 )+ )? select
+      | (?: ' | %27 | " ) \s* (?: [\s+] | %20 )* (?: or | and ) (?: [\s+] | %20 )+
+        (?: ' | %27 | " )? \s* \d+ \s* (?: ' | %27 | " )? \s*
+        (?: = | %3d | < | > ) \s* (?: ' | %27 | " )? \s* \d+
+      | \b or (?: [\s+] | %20 )+ 1 \s* (?: = | %3d ) \s* 1 (?: [\s+]* (?: -- | \# | ; ) | $ )
+      | /etc/passwd\b
+      | (?: \.\./ | \.\.%2f | %2e%2e%2f ){2,}
+      | /\.git/ | /\.svn/
+      | /\.env (?: \b | $ )
+      | \bsqlmap\b | \bnikto\b | \bnuclei\b | \bwpscan\b | \bmasscan\b | \bacunetix\b
+      | \bxp_cmdshell\b | \binformation_schema\b
+      | ; \s* (?: id | whoami | uname | cat[\s+]/etc/ | curl[\s+] | wget[\s+] | nc[\s+] | bash[\s+] )
+      | \|\s* (?: id | whoami ) \b
+      | \$\( [^)]+ \)
