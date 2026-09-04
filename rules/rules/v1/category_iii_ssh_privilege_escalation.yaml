@@ -1,0 +1,31 @@
+schema_version: 1
+rule_id: afe8cbd2-7a70-4bbe-a7c2-2affe460db19
+title: SSH brute force, successful authentication, then privileged sudo execution
+status: stable
+category: iii
+description: >-
+  Completes the Category (iii) unauthorised-access picture: at least 10 failed SSH
+  authentications from one normalized source, followed by a successful SSH
+  authentication from that source, followed by a privileged sudo command
+  execution (a root shell or an interactive shell) from that same source, all
+  within a rolling 120-second window anchored at the sudo event. The first-slice
+  rule category_iii_ssh_bruteforce.yaml stays as-is for the brute-force-plus-login
+  signal; this rule adds the privilege-escalation step and is the one to cite for
+  a confirmed intrusion.
+detection:
+  type: sequence
+  group_by: source
+  within_seconds: 120
+  steps:
+    - name: failed_ssh_authentication
+      match:
+        raw_message_regex: '(?i)sshd(?:\[\d+\])?:.*failed (?:password|publickey) for'
+      min_count: 10
+    - name: successful_ssh_authentication
+      match:
+        raw_message_regex: '(?i)sshd(?:\[\d+\])?:.*accepted (?:password|publickey) for'
+      min_count: 1
+    - name: privileged_sudo_execution
+      match:
+        raw_message_regex: "(?i)sudo:.*COMMAND=(?:/usr/bin/|/bin/)?(?:su\\b|-?bash\\b|-?sh\\b|zsh\\b)"
+      min_count: 1

@@ -1,0 +1,20 @@
+# Category (x): one sqlmap-driven UNION SELECT request against the API tier.
+# Two ordinary requests around it must not add matches — exactly one fires.
+- event_id: d0000000-0000-4000-8000-000000000001
+  occurred_at: 2026-08-25T09:15:00Z
+  detected_at: 2026-08-25T09:15:00Z
+  source: primary-srv-01/nginx
+  raw_message: '203.0.113.55 - - [25/Aug/2026:09:15:00 +0000] "GET /shop/index.php?category=1 HTTP/1.1" 200 4213 "-" "Mozilla/5.0"'
+  category: x
+- event_id: d0000000-0000-4000-8000-000000000002
+  occurred_at: 2026-08-25T09:15:04Z
+  detected_at: 2026-08-25T09:15:04Z
+  source: primary-srv-01/nginx
+  raw_message: '185.220.101.4 - - [25/Aug/2026:09:15:04 +0000] "GET /shop/index.php?category=1%20UNION%20SELECT%20username,password%20FROM%20users-- HTTP/1.1" 500 512 "-" "sqlmap/1.7.2#stable (https://sqlmap.org)"'
+  category: x
+- event_id: d0000000-0000-4000-8000-000000000003
+  occurred_at: 2026-08-25T09:15:09Z
+  detected_at: 2026-08-25T09:15:09Z
+  source: primary-srv-01/nginx
+  raw_message: '203.0.113.55 - - [25/Aug/2026:09:15:09 +0000] "GET /shop/cart HTTP/1.1" 200 1841 "-" "Mozilla/5.0"'
+  category: x

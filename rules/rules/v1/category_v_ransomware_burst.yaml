@@ -1,0 +1,27 @@
+schema_version: 1
+rule_id: ee34a340-0fa0-48cf-be0e-c147518972b5
+title: Malicious code — rapid multi-file modification burst with canary alteration
+status: stable
+category: v
+description: >-
+  Detects ransomware / destructive-malware behaviour by correlating, inside a
+  30-second window: (1) a burst of at least 10 create / write / rename
+  file-integrity events under monitored data directories, and (2) an alteration
+  of a canary file (a decoy the agent plants and no legitimate process touches).
+  The canary arm is the false-positive control: a nightly backup or a bulk
+  rsync also produces a write burst, but it never touches the canary, so it does
+  not match.
+detection:
+  type: correlation
+  within_seconds: 30
+  arms:
+    - name: file_modification_burst
+      match:
+        source_regex: '/fim(?:\b|$)'
+        raw_message_regex: '^FIM\s+(?:WRITE|RENAME|CREATE)\s+(?!.*\bCANARY\b)'
+      min_count: 10
+    - name: canary_alteration
+      match:
+        source_regex: '/fim(?:\b|$)'
+        raw_message_regex: '^FIM\s+CANARY\s+(?:WRITE|RENAME|REMOVE|CHMOD)\s'
+      min_count: 1
