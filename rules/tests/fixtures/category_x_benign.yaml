@@ -1,0 +1,21 @@
+# Category (x) false-positive control: ordinary catalogue traffic. Contains the
+# substring "union", a "select" path segment and a numeric id parameter, none of
+# which are attack syntax. Zero matches expected.
+- event_id: d1000000-0000-4000-8000-000000000001
+  occurred_at: 2026-08-25T11:00:00Z
+  detected_at: 2026-08-25T11:00:00Z
+  source: primary-srv-01/nginx
+  raw_message: '198.51.100.7 - - [25/Aug/2026:11:00:00 +0000] "GET /products/european-union-flags?id=42 HTTP/1.1" 200 3120 "-" "Mozilla/5.0 (X11; Linux x86_64)"'
+  category: x
+- event_id: d1000000-0000-4000-8000-000000000002
+  occurred_at: 2026-08-25T11:00:03Z
+  detected_at: 2026-08-25T11:00:03Z
+  source: primary-srv-01/nginx
+  raw_message: '198.51.100.7 - - [25/Aug/2026:11:00:03 +0000] "GET /blog/how-to-select-a-router HTTP/1.1" 200 8210 "-" "Mozilla/5.0 (X11; Linux x86_64)"'
+  category: x
+- event_id: d1000000-0000-4000-8000-000000000003
+  occurred_at: 2026-08-25T11:00:07Z
+  detected_at: 2026-08-25T11:00:07Z
+  source: primary-srv-01/nginx
+  raw_message: '198.51.100.7 - - [25/Aug/2026:11:00:07 +0000] "GET /api/v1/users?id=1 HTTP/1.1" 200 561 "-" "Mozilla/5.0 (X11; Linux x86_64)"'
+  category: x

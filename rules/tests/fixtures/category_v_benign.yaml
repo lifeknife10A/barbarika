@@ -1,0 +1,86 @@
+# Category (v) false-positive control: a nightly backup job rewrites 14 files
+# under /srv/data in ~12s. High volume, but the canary is never touched -> no match.
+- event_id: c1000000-0000-4000-8000-000000000001
+  occurred_at: 2026-08-27T03:30:00Z
+  detected_at: 2026-08-27T03:30:01Z
+  source: primary-srv-01/fim
+  raw_message: 'FIM WRITE /srv/data/backup/archive-001.tar.gz sha256=0000000000000000000000000000000000000000000000000000000000000000'
+  category: v
+- event_id: c1000000-0000-4000-8000-000000000002
+  occurred_at: 2026-08-27T03:30:00.900000Z
+  detected_at: 2026-08-27T03:30:01.900000Z
+  source: primary-srv-01/fim
+  raw_message: 'FIM WRITE /srv/data/backup/archive-002.tar.gz sha256=1111111111111111111111111111111111111111111111111111111111111111'
+  category: v
+- event_id: c1000000-0000-4000-8000-000000000003
+  occurred_at: 2026-08-27T03:30:01.800000Z
+  detected_at: 2026-08-27T03:30:02.800000Z
+  source: primary-srv-01/fim
+  raw_message: 'FIM WRITE /srv/data/backup/archive-003.tar.gz sha256=2222222222222222222222222222222222222222222222222222222222222222'
+  category: v
+- event_id: c1000000-0000-4000-8000-000000000004
+  occurred_at: 2026-08-27T03:30:02.700000Z
+  detected_at: 2026-08-27T03:30:03.700000Z
+  source: primary-srv-01/fim
+  raw_message: 'FIM WRITE /srv/data/backup/archive-004.tar.gz sha256=3333333333333333333333333333333333333333333333333333333333333333'
+  category: v
+- event_id: c1000000-0000-4000-8000-000000000005
+  occurred_at: 2026-08-27T03:30:03.600000Z
+  detected_at: 2026-08-27T03:30:04.600000Z
+  source: primary-srv-01/fim
+  raw_message: 'FIM WRITE /srv/data/backup/archive-005.tar.gz sha256=4444444444444444444444444444444444444444444444444444444444444444'
+  category: v
+- event_id: c1000000-0000-4000-8000-000000000006
+  occurred_at: 2026-08-27T03:30:04.500000Z
+  detected_at: 2026-08-27T03:30:05.500000Z
+  source: primary-srv-01/fim
+  raw_message: 'FIM WRITE /srv/data/backup/archive-006.tar.gz sha256=5555555555555555555555555555555555555555555555555555555555555555'
+  category: v
+- event_id: c1000000-0000-4000-8000-000000000007
+  occurred_at: 2026-08-27T03:30:05.400000Z
+  detected_at: 2026-08-27T03:30:06.400000Z
+  source: primary-srv-01/fim
+  raw_message: 'FIM WRITE /srv/data/backup/archive-007.tar.gz sha256=6666666666666666666666666666666666666666666666666666666666666666'
+  category: v
+- event_id: c1000000-0000-4000-8000-000000000008
+  occurred_at: 2026-08-27T03:30:06.300000Z
+  detected_at: 2026-08-27T03:30:07.300000Z
+  source: primary-srv-01/fim
+  raw_message: 'FIM WRITE /srv/data/backup/archive-008.tar.gz sha256=7777777777777777777777777777777777777777777777777777777777777777'
+  category: v
+- event_id: c1000000-0000-4000-8000-000000000009
+  occurred_at: 2026-08-27T03:30:07.200000Z
+  detected_at: 2026-08-27T03:30:08.200000Z
+  source: primary-srv-01/fim
+  raw_message: 'FIM WRITE /srv/data/backup/archive-009.tar.gz sha256=8888888888888888888888888888888888888888888888888888888888888888'
+  category: v
+- event_id: c1000000-0000-4000-8000-000000000010
+  occurred_at: 2026-08-27T03:30:08.100000Z
+  detected_at: 2026-08-27T03:30:09.100000Z
+  source: primary-srv-01/fim
+  raw_message: 'FIM WRITE /srv/data/backup/archive-010.tar.gz sha256=9999999999999999999999999999999999999999999999999999999999999999'
+  category: v
+- event_id: c1000000-0000-4000-8000-000000000011
+  occurred_at: 2026-08-27T03:30:09Z
+  detected_at: 2026-08-27T03:30:10Z
+  source: primary-srv-01/fim
+  raw_message: 'FIM WRITE /srv/data/backup/archive-011.tar.gz sha256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+  category: v
+- event_id: c1000000-0000-4000-8000-000000000012
+  occurred_at: 2026-08-27T03:30:09.900000Z
+  detected_at: 2026-08-27T03:30:10.900000Z
+  source: primary-srv-01/fim
+  raw_message: 'FIM WRITE /srv/data/backup/archive-012.tar.gz sha256=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+  category: v
+- event_id: c1000000-0000-4000-8000-000000000013
+  occurred_at: 2026-08-27T03:30:10.800000Z
+  detected_at: 2026-08-27T03:30:11.800000Z
+  source: primary-srv-01/fim
+  raw_message: 'FIM WRITE /srv/data/backup/archive-013.tar.gz sha256=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
+  category: v
+- event_id: c1000000-0000-4000-8000-000000000014
+  occurred_at: 2026-08-27T03:30:11.700000Z
+  detected_at: 2026-08-27T03:30:12.700000Z
+  source: primary-srv-01/fim
+  raw_message: 'FIM WRITE /srv/data/backup/archive-014.tar.gz sha256=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'
+  category: v

@@ -1,0 +1,75 @@
+# Category (iii) false-positive control: an admin fat-fingers their password 10
+# times, logs in, and runs a routine 'sudo apt update' -- no privileged shell,
+# so the privilege-escalation step never matches and the rule does not fire.
+- event_id: a1000000-0000-4000-8000-000000000001
+  occurred_at: 2026-08-28T07:00:00Z
+  detected_at: 2026-08-28T07:00:01Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[5200]: Failed password for admin from 198.51.100.8 port 52000 ssh2'
+  category: iii
+- event_id: a1000000-0000-4000-8000-000000000002
+  occurred_at: 2026-08-28T07:00:05Z
+  detected_at: 2026-08-28T07:00:06Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[5201]: Failed password for admin from 198.51.100.8 port 52001 ssh2'
+  category: iii
+- event_id: a1000000-0000-4000-8000-000000000003
+  occurred_at: 2026-08-28T07:00:10Z
+  detected_at: 2026-08-28T07:00:11Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[5202]: Failed password for admin from 198.51.100.8 port 52002 ssh2'
+  category: iii
+- event_id: a1000000-0000-4000-8000-000000000004
+  occurred_at: 2026-08-28T07:00:15Z
+  detected_at: 2026-08-28T07:00:16Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[5203]: Failed password for admin from 198.51.100.8 port 52003 ssh2'
+  category: iii
+- event_id: a1000000-0000-4000-8000-000000000005
+  occurred_at: 2026-08-28T07:00:20Z
+  detected_at: 2026-08-28T07:00:21Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[5204]: Failed password for admin from 198.51.100.8 port 52004 ssh2'
+  category: iii
+- event_id: a1000000-0000-4000-8000-000000000006
+  occurred_at: 2026-08-28T07:00:25Z
+  detected_at: 2026-08-28T07:00:26Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[5205]: Failed password for admin from 198.51.100.8 port 52005 ssh2'
+  category: iii
+- event_id: a1000000-0000-4000-8000-000000000007
+  occurred_at: 2026-08-28T07:00:30Z
+  detected_at: 2026-08-28T07:00:31Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[5206]: Failed password for admin from 198.51.100.8 port 52006 ssh2'
+  category: iii
+- event_id: a1000000-0000-4000-8000-000000000008
+  occurred_at: 2026-08-28T07:00:35Z
+  detected_at: 2026-08-28T07:00:36Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[5207]: Failed password for admin from 198.51.100.8 port 52007 ssh2'
+  category: iii
+- event_id: a1000000-0000-4000-8000-000000000009
+  occurred_at: 2026-08-28T07:00:40Z
+  detected_at: 2026-08-28T07:00:41Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[5208]: Failed password for admin from 198.51.100.8 port 52008 ssh2'
+  category: iii
+- event_id: a1000000-0000-4000-8000-000000000010
+  occurred_at: 2026-08-28T07:00:45Z
+  detected_at: 2026-08-28T07:00:46Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[5209]: Failed password for admin from 198.51.100.8 port 52009 ssh2'
+  category: iii
+- event_id: a1000000-0000-4000-8000-00000000000b
+  occurred_at: 2026-08-28T07:00:50Z
+  detected_at: 2026-08-28T07:00:51Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sshd[5299]: Accepted password for admin from 198.51.100.8 port 52099 ssh2'
+  category: iii
+- event_id: a1000000-0000-4000-8000-00000000000c
+  occurred_at: 2026-08-28T07:00:55Z
+  detected_at: 2026-08-28T07:00:56Z
+  source: primary-srv-01/auth.log
+  raw_message: 'sudo:    admin : TTY=pts/0 ; PWD=/home/admin ; USER=root ; COMMAND=/usr/bin/apt update'
+  category: iii
