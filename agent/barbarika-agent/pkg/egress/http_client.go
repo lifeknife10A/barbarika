@@ -122,18 +122,20 @@ func (c *Client) SendHeartbeat(ctx context.Context, payload *models.HeartbeatPay
 	return nil
 }
 
-// SendEvent dispatches a single normalized log event to Sentry's POST /events
-// endpoint in the schemas.EventIn shape (see integration/CONTRACT.md). The
-// agent's own SHA-256 and Ed25519 signature are carried inside `payload` for
-// provenance; Sentry computes its own hash chain on top. Unlike the heartbeat
-// path, egress errors here are returned (not swallowed) so the caller can log
-// a real delivery failure instead of silently dropping evidence.
+// SendEvent dispatches a single normalized log event to Sentry's POST /ingest
+// endpoint in the EventIn shape (see integration/CONTRACT.md). Sentry assigns the
+// sequence + received_at, seals the content at rest, masks reads, and evaluates
+// detection rules. The agent's Ed25519 signature (over the exact wire fields) and
+// SHA-256 travel inside `payload` for receive-side verification. Egress errors
+// are returned (not swallowed) so the caller can log a real delivery failure.
 func (c *Client) SendEvent(ctx context.Context, ev models.LogEvent) error {
 	timestamp := ev.Timestamp.UTC().Format(time.RFC3339Nano)
+	source := c.cfg.AgentID + "/" + ev.Source
+	eventType := classifyEventType(ev.Source, ev.RawContent)
 
-	// Sign the canonical event tuple so the agent identity/authenticity travels
-	// with the event even though the current Sentry receiver does not yet verify it.
-	signable := fmt.Sprintf("%s|%d|%s|%s|%s", c.cfg.AgentID, ev.Sequence, timestamp, ev.Source, ev.RawContent)
+	// Sign over the exact wire fields Sentry receives, so the receiver can
+	// reconstruct the preimage from the raw request and verify (see the CONTRACT).
+	signable := fmt.Sprintf("%s|%s|%s|%s", eventType, source, timestamp, ev.RawContent)
 	signature := c.signer.Sign([]byte(signable))
 
 	out := toSentryEvent(c.cfg.AgentID, timestamp, c.signer.PublicKeyBase64(), signature, ev)
@@ -142,14 +144,12 @@ func (c *Client) SendEvent(ctx context.Context, ev models.LogEvent) error {
 		return fmt.Errorf("failed to marshal event seq %d: %w", ev.Sequence, err)
 	}
 
-	url := fmt.Sprintf("%s/events", c.cfg.SentryBaseURL)
+	url := fmt.Sprintf("%s/ingest", c.cfg.SentryBaseURL)
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(body))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Agent-ID", c.cfg.AgentID)
-	req.Header.Set("X-Public-Key", c.signer.PublicKeyBase64())
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
