@@ -106,18 +106,24 @@ integration/run_mtls_e2e.sh   # mTLS + cert-less-rejected + detection + benchmar
 - **Live detection**: category-tagged events are rule-evaluated; the Category (iii)
   SSH brute-force rule fires an incident end-to-end (proven: 1 incident, 13 events).
 - **mTLS 1.3** with Jash's PKI; cert-less client rejected.
+- **Receive-side Ed25519 verification + key pinning (ported into `sentry/`)**:
+  `POST /ingest` verifies the signature over the raw body, rejects a present-but-
+  invalid signature (400), pins the verified key to the mTLS identity and rejects
+  a rogue key (409); `signature_verified`/`signer_identity` exposed in `EventOut`.
+  Proven end-to-end: 214/214 agent signatures verified, rogue → 409.
 - **Agent robustness**: restart-durable sequence + per-boot `boot_id`.
 
 ## Next
 
-1. **Port Ed25519 verification + key pinning into `sentry/`** (it does not verify
-   signatures today). The agent already ships `agent_pubkey`/`agent_signature`
-   signed over `event_type|source|occurred_at|raw_message`; the receiver
-   reconstructs from the raw request body and verifies + pins identity→key.
-2. **Rules (Anishka)**: extend `candidateCategory` + add the iv/x/v rules; they plug
+1. **Rules (Anishka)**: extend `candidateCategory` + add the iv/x/v rules; they plug
    into `sentry/`'s already-wired detector.
-3. **Dashboard (Nandini)**: connect to `GET /events/stream` (SSE) — reconcile the
-   UI's `telemetry`/`heartbeat` event names with Sentry's `event`/`incident`.
+2. **Dashboard (Nandini)**: connect to `GET /events/stream` (SSE) — reconcile the
+   UI's `telemetry`/`heartbeat` event names with Sentry's `event`/`incident`; it can
+   now surface the real `signature_verified`/`signer_identity` in provenance.
+3. **Forward the mTLS CN for per-agent pinning**: in the direct demo the pinned
+   identity is the generic `mtls-client` (uvicorn doesn't surface the peer cert).
+   A TLS edge that sets `X-Client-Cert-CN` makes the identity the real certificate
+   CN, so pinning is per-agent. Optionally require signatures (`SENTRY_REQUIRE_SIGNATURE=1`).
 4. **Heartbeat receive-side**: `sentry/` has no `/heartbeat` (watchdog is a
    documented gap); the agent still emits heartbeats for the future watchdog.
 5. Minor: `sentry/`'s `mask_text` over-masks `HH:MM:SS` as `«ip»` (safe over-mask).

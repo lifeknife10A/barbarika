@@ -56,11 +56,25 @@ CREATE TABLE IF NOT EXISTS events (
     received_at  TEXT    NOT NULL,
     sealed_blob  BLOB    NOT NULL,
     prev_hash    TEXT    NOT NULL,
-    row_hash     TEXT    NOT NULL
+    row_hash     TEXT    NOT NULL,
+    -- Receive-side Ed25519 verification result (metadata; NOT part of the chain
+    -- preimage — the signature itself is inside sealed_blob and already chained).
+    signature_verified INTEGER NOT NULL DEFAULT 0,
+    signer_identity    TEXT,
+    signer_pubkey      TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_events_received_at ON events(received_at);
 CREATE INDEX IF NOT EXISTS idx_events_type        ON events(event_type);
 CREATE INDEX IF NOT EXISTS idx_events_category    ON events(category);
+
+-- Pinned public key per agent identity (trust-on-first-use). The first verified
+-- key seen for an identity is pinned; a later event for that identity presenting
+-- a different key is rejected (impersonation / key swap).
+CREATE TABLE IF NOT EXISTS agent_keys (
+    identity   TEXT PRIMARY KEY,
+    pubkey     TEXT NOT NULL,
+    first_seen TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS incidents (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,11 +117,15 @@ def append_event(
     received_at: datetime,
     raw_message: str | None,
     payload: dict[str, Any],
+    signature_verified: bool = False,
+    signer_identity: str | None = None,
+    signer_pubkey: str | None = None,
 ) -> dict[str, Any]:
     """Seal content, extend the hash chain, and insert one event row.
 
     Returns a dict with id, seq, received_at, row_hash. Thread-safe: the whole
-    read-prev/compute/insert sequence runs under a process-wide lock.
+    read-prev/compute/insert sequence runs under a process-wide lock. The
+    signature_* metadata is stored alongside but is NOT part of the chain preimage.
     """
     received_iso = _iso(received_at)
     assert received_iso is not None
@@ -138,13 +156,15 @@ def append_event(
             """
             INSERT INTO events
                 (seq, event_type, source, severity, category,
-                 occurred_at, detected_at, received_at, sealed_blob, prev_hash, row_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 occurred_at, detected_at, received_at, sealed_blob, prev_hash, row_hash,
+                 signature_verified, signer_identity, signer_pubkey)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 seq, event_type, source, severity, category,
                 _iso(occurred_at), _iso(detected_at), received_iso,
                 sealed, prev_hash, row_hash,
+                1 if signature_verified else 0, signer_identity, signer_pubkey,
             ),
         )
         conn.commit()
@@ -156,6 +176,27 @@ def append_event(
         "received_at": received_at,
         "row_hash": row_hash,
     }
+
+
+def bind_key(conn: sqlite3.Connection, identity: str, pubkey: str) -> tuple[bool, str]:
+    """Pin identity->pubkey (trust-on-first-use) and enforce it.
+
+    Returns (ok, status): ("bound-new" | "bound-match", True) or ("mismatch", False).
+    """
+    with _append_lock:
+        row = conn.execute(
+            "SELECT pubkey FROM agent_keys WHERE identity = ?", (identity,)
+        ).fetchone()
+        if row is None:
+            conn.execute(
+                "INSERT INTO agent_keys (identity, pubkey, first_seen) VALUES (?, ?, ?)",
+                (identity, pubkey, datetime.now(timezone.utc).isoformat()),
+            )
+            conn.commit()
+            return True, "bound-new"
+        if row["pubkey"] == pubkey:
+            return True, "bound-match"
+        return False, "mismatch"
 
 
 def record_incident(

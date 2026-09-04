@@ -96,6 +96,9 @@ mtls "${BASE_URL}/incidents" | python3 -c "import sys,json;d=json.load(sys.stdin
 banner "Benchmark: ${BENCH_N} events agent -> mTLS -> sentry/"
 python3 "${SCRIPT_DIR}/bench.py" --auth-log "${AUTH}" --db "${DB}" -n "${BENCH_N}"
 
+banner "Provenance: agent signatures verify + rogue key rejected"
+( cd "${SENTRY_DIR}" && uv run python "${SCRIPT_DIR}/check_provenance.py" --base-url "${BASE_URL}" --certs "${CERTS}" )
+
 banner "Verify hash chain"
 ( cd "${SENTRY_DIR}" && SENTRY_DB_PATH="${DB}" SENTRY_KEY_PATH="${KEY}" uv run python scripts/verify_chain.py --db "${DB}" )
 

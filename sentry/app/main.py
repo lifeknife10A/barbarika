@@ -26,12 +26,25 @@ from datetime import datetime, timezone
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
-from . import crypto, db, mtls
+from . import crypto, db, mtls, signatures
 from .broadcast import Broadcaster
 from .detect import Detector, load_rules
 from .models import EventAck, EventIn, EventOut, IncidentOut
 
 logger = logging.getLogger("sentry")
+
+# Reject events that arrive without a signature when strict mode is on.
+REQUIRE_SIGNATURE = os.environ.get("SENTRY_REQUIRE_SIGNATURE") == "1"
+
+
+async def _raw_json(request: Request) -> dict:
+    """The exact request body as a dict.
+
+    Ed25519 verification must run over the bytes the agent signed (notably the
+    wire occurred_at string), which the parsed EventIn would not reproduce.
+    FastAPI caches the body, so this and the EventIn parameter read the same one.
+    """
+    return await request.json()
 
 
 class State:
@@ -81,6 +94,9 @@ def _row_to_event_out(row: sqlite3.Row, *, unmask: bool) -> EventOut:
         payload=payload,
         row_hash=row["row_hash"],
         masked=not unmask,
+        signature_verified=bool(row["signature_verified"]),
+        signer_identity=row["signer_identity"],
+        signer_pubkey=row["signer_pubkey"],
     )
 
 
@@ -117,6 +133,7 @@ def health() -> dict[str, object]:
 @app.post("/ingest", response_model=EventAck, status_code=200)
 def ingest(
     event: EventIn,
+    raw: dict = Depends(_raw_json),
     agent_identity: str = Depends(mtls.require_client_identity),
 ) -> EventAck:
     try:
@@ -124,9 +141,30 @@ def ingest(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    # Receive-side Ed25519 verification over the exact signed bytes. A present-
+    # but-invalid signature means the event was altered in transit -> reject it.
+    verified, sig_status, signer_pubkey = signatures.verify_event_signature(raw)
+    if sig_status == signatures.INVALID:
+        raise HTTPException(status_code=400, detail="invalid event signature")
+    if sig_status == signatures.UNSIGNED and REQUIRE_SIGNATURE:
+        raise HTTPException(status_code=401, detail="event signature required")
+
     received_at = datetime.now(timezone.utc)
     conn = db.connect()
     try:
+        # Key-to-identity binding: a verified key is pinned to its identity (the
+        # mTLS-resolved identity). A different key for a pinned identity is an
+        # impersonation attempt -> reject.
+        signer_identity = None
+        if verified:
+            signer_identity = agent_identity
+            ok, _bind_status = db.bind_key(conn, signer_identity, signer_pubkey)
+            if not ok:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"signing key does not match the key pinned for '{signer_identity}'",
+                )
+
         result = db.append_event(
             conn,
             state.key,
@@ -139,6 +177,9 @@ def ingest(
             received_at=received_at,
             raw_message=event.raw_message,
             payload=event.payload,
+            signature_verified=verified,
+            signer_identity=signer_identity,
+            signer_pubkey=signer_pubkey,
         )
 
         # Broadcast the event (masked) to live subscribers.
