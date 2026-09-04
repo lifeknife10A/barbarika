@@ -1,6 +1,7 @@
 package egress
 
 import (
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -77,6 +78,14 @@ func canonicalSignable(eventType, source, severity, category, occurredAt, detect
 
 // classifyEventType maps a raw log line to the canonical event_type Sentry stores.
 func classifyEventType(source, raw string) string {
+	// File-integrity lines are emitted by the FIM watcher with a fixed prefix
+	// (collector/fim.go); classify them before the case-insensitive log rules.
+	switch {
+	case strings.HasPrefix(raw, "FIM CANARY "):
+		return "canary_tampered"
+	case strings.HasPrefix(raw, "FIM "):
+		return "file_change"
+	}
 	r := strings.ToLower(raw)
 	switch {
 	case strings.Contains(r, "failed password"), strings.Contains(r, "authentication failure"):
@@ -114,12 +123,75 @@ func candidateCategory(eventType, raw string) *string {
 		default:
 			return nil
 		}
+	case "canary_tampered":
+		return strptr("v") // Malicious code — a decoy file was touched (always Category v)
+	case "file_change":
+		// A change under the web root is a website-defacement (iv) candidate; one
+		// under a monitored data dir is a ransomware-burst (v) candidate.
+		path := fimPath(raw)
+		switch {
+		case underAny(path, fimWebRoots):
+			return strptr("iv")
+		case underAny(path, fimDataDirs):
+			return strptr("v")
+		default:
+			return nil
+		}
 	default:
 		return nil
 	}
 }
 
 func strptr(s string) *string { return &s }
+
+// FIM path roots used to route file_change events to a category. Defaults match
+// config's defaults; ConfigureFIM overrides them from the running config so the
+// tag matches the paths the watcher actually reports.
+var (
+	fimWebRoots = []string{"/var/www"}
+	fimDataDirs = []string{"/srv/data"}
+)
+
+// ConfigureFIM sets the web-root / data-dir prefixes candidateCategory uses to
+// classify file_change events (call once at startup from the agent config).
+func ConfigureFIM(webRoots, dataDirs []string) {
+	if webRoots != nil {
+		fimWebRoots = webRoots
+	}
+	if dataDirs != nil {
+		fimDataDirs = dataDirs
+	}
+}
+
+// fimPath extracts the <abs_path> from a FIM raw_message of the form
+// "FIM [CANARY] <OP> <abs_path> sha256=<hex|->". Returns "" if malformed.
+func fimPath(raw string) string {
+	fields := strings.Fields(raw)
+	// Drop the trailing "sha256=..." token, then take the last remaining field
+	// (the path); "FIM"/"CANARY"/"<OP>" precede it.
+	if len(fields) >= 2 && strings.HasPrefix(fields[len(fields)-1], "sha256=") {
+		fields = fields[:len(fields)-1]
+	}
+	if len(fields) < 3 {
+		return ""
+	}
+	return fields[len(fields)-1]
+}
+
+// underAny reports whether path is at or below one of the given root prefixes.
+func underAny(path string, roots []string) bool {
+	if path == "" {
+		return false
+	}
+	clean := filepath.Clean(path)
+	for _, root := range roots {
+		r := filepath.Clean(root)
+		if clean == r || strings.HasPrefix(clean, r+"/") {
+			return true
+		}
+	}
+	return false
+}
 
 // severityFor gives Sentry a coarse severity per event_type.
 func severityFor(eventType string) string {

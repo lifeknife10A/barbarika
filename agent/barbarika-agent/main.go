@@ -33,6 +33,7 @@ func main() {
 		cfg.AgentKeyPath, signer.PublicKeyBase64()[:16])
 
 	// 3. Initialize HTTP Egress Client & Heartbeat Watchdog
+	egress.ConfigureFIM(cfg.FIMWebRoots, cfg.FIMDataDirs) // route FIM events iv/v by path
 	egressClient, err := egress.NewClient(cfg, signer)
 	if err != nil {
 		log.Fatalf("[Egress Error] Failed to initialize Sentry transport: %v", err)

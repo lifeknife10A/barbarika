@@ -27,13 +27,19 @@ AGENT_BIN="${WORK}/barbarika-agent"
 DB="${WORK}/sentry.db"
 KEY="${WORK}/sentry.key"
 
+# FIM demo dirs must sit under the real /var/www and /srv/data roots the rules
+# anchor on (category_iv arm B matches '/var/www/'), but in a disposable subdir
+# so the run never touches real site/data files. Removed on exit.
+FIM_WEB="/var/www/barbarika-demo"
+FIM_DATA="/srv/data/barbarika-demo"
+
 SENTRY_PID=""
 AGENT_PID=""
 cleanup() {
   for pid in "${AGENT_PID}" "${SENTRY_PID}"; do [[ -n "${pid}" ]] && kill "${pid}" 2>/dev/null || true; done
   sleep 0.5
   for pid in "${AGENT_PID}" "${SENTRY_PID}"; do [[ -n "${pid}" ]] && kill -9 "${pid}" 2>/dev/null || true; done
-  rm -rf "${WORK}"
+  rm -rf "${WORK}" "${FIM_WEB}" "${FIM_DATA}"
 }
 trap cleanup EXIT
 banner() { printf '\n=== %s ===\n' "$1"; }
@@ -69,9 +75,17 @@ else
   echo "  OK: TLS layer rejected the cert-less client (mutual auth enforced)"
 fi
 
+banner "Preparing FIM watch roots (${FIM_WEB}, ${FIM_DATA}) + planting a canary"
+# Created BEFORE the agent so fsnotify registers the dirs; the pre-plant write
+# happens before the watcher, so it is not itself an integrity event.
+mkdir -p "${FIM_WEB}" "${FIM_DATA}"
+printf 'decoy — do not touch\n' > "${FIM_DATA}/.canary_token.docx"
+
 banner "Starting agent over mTLS (presents Jash's demo-client cert)"
 printf 'Aug 19 10:14:00 web sshd[100]: Server listening on port 22\n' > "${WORK}/mock_logs/auth.log"
 : > "${WORK}/mock_logs/nginx_access.log"
+# FIM_WEB_ROOTS/FIM_DATA_DIRS default to /var/www:/srv/data; the demo subdirs are
+# under those, so file_change events route iv (web root) / v (data dir) by path.
 ( cd "${WORK}" && SENTRY_URL="${BASE_URL}" AGENT_ID="primary-srv-01" \
     SENTRY_CA_CERT="${CERTS}/demo-ca.crt" SENTRY_CLIENT_CERT="${CERTS}/demo-client.crt" \
     SENTRY_CLIENT_KEY="${CERTS}/demo-client.key" exec "${AGENT_BIN}" >"${WORK}/agent.log" 2>&1 ) &
@@ -101,6 +115,22 @@ NGINX="${WORK}/mock_logs/nginx_access.log"
 printf '203.0.113.66 - - [19/Aug/2026:10:17:00 +0000] "GET /shop/item?id=1%%20UNION%%20SELECT%%20username,password%%20FROM%%20users-- HTTP/1.1" 500 512 "-" "sqlmap/1.7.2#stable (https://sqlmap.org)"\n' >> "${NGINX}"
 sleep 4
 mtls "${BASE_URL}/incidents" | python3 -c "import sys,json;d=json.load(sys.stdin);xs=[i for i in d if i['category']=='x'];assert xs,'no Category (x) incident fired';print(f'  Category (x) incident: {xs[0][\"rule_title\"][:64]} ({len(xs[0][\"event_ids\"])} event)')"
+
+banner "Injecting Category (iv): web exploit (nginx) + web-root file change (FIM), <120s"
+# Arm A: a defacement-oriented request (agent tags it 'iv'). Arm B: the FIM
+# watcher sees index.php rewritten under the web root (also 'iv'). Correlated.
+printf '185.220.101.9 - - [19/Aug/2026:10:18:00 +0000] "POST /wp-admin/admin-ajax.php?action=upload HTTP/1.1" 200 31 "-" "python-requests/2.32"\n' >> "${NGINX}"
+printf '<?php /* defaced by test */ ?>\n' > "${FIM_WEB}/index.php"
+sleep 4
+mtls "${BASE_URL}/incidents" | python3 -c "import sys,json;d=json.load(sys.stdin);xs=[i for i in d if i['category']=='iv'];assert xs,'no Category (iv) incident fired';print(f'  Category (iv) incident: {xs[0][\"rule_title\"][:64]} ({len(xs[0][\"event_ids\"])} events)')"
+
+banner "Injecting Category (v): >=10 data-file writes + canary alteration (FIM), <30s"
+# Arm A: a rapid write burst under the data dir (agent tags each 'v'). Arm B: the
+# planted canary is altered (tagged 'v'). Correlated -> ransomware-burst incident.
+for i in $(seq 1 12); do printf 'ENCRYPTED-%s\n' "$i" > "${FIM_DATA}/report_${i}.xlsx.locked"; done
+printf 'tampered\n' >> "${FIM_DATA}/.canary_token.docx"
+sleep 4
+mtls "${BASE_URL}/incidents" | python3 -c "import sys,json;d=json.load(sys.stdin);xs=[i for i in d if i['category']=='v'];assert xs,'no Category (v) incident fired';print(f'  Category (v) incident: {xs[0][\"rule_title\"][:64]} ({len(xs[0][\"event_ids\"])} events)')"
 
 banner "Benchmark: ${BENCH_N} events agent -> mTLS -> sentry/"
 python3 "${SCRIPT_DIR}/bench.py" --auth-log "${AUTH}" --db "${DB}" -n "${BENCH_N}"

@@ -52,6 +52,14 @@ func TestCandidateCategoryRouting(t *testing.T) {
 		{"ssh_failed", "auth", `sshd[9901]: Failed password for root from 185.220.101.4 port 41001 ssh2`, "iii"},
 		{"ssh_accepted", "auth", `sshd[9907]: Accepted password for ubuntu from 185.220.101.4 port 4107 ssh2`, "iii"},
 		{"sudo", "auth", `sudo:   ubuntu : TTY=pts/1 ; PWD=/root ; USER=root ; COMMAND=/bin/bash`, "iii"},
+
+		// FIM: file_change under the web root -> iv, under a data dir -> v,
+		// canary -> v; outside any root -> none. (default roots /var/www, /srv/data)
+		{"fim_webroot_write", "fim", `FIM WRITE /var/www/html/index.php sha256=4c2a9f1e8b7d6c5a`, "iv"},
+		{"fim_webroot_remove", "fim", `FIM REMOVE /var/www/html/index.php sha256=-`, "iv"},
+		{"fim_datadir_create", "fim", `FIM CREATE /srv/data/report01.xlsx sha256=00ba1122`, "v"},
+		{"fim_canary", "fim", `FIM CANARY WRITE /srv/data/.canary_token.docx sha256=00ba`, "v"},
+		{"fim_outside_roots", "fim", `FIM WRITE /tmp/scratch.txt sha256=deadbeef`, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

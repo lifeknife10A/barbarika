@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -18,6 +19,14 @@ type Config struct {
 	BatchFlushTimeout time.Duration
 	MaxBatchSize      int
 	LogSources        map[string]string
+
+	// File-integrity monitoring (FIM). The watcher emits `source=<id>/fim`
+	// events; a change under a WebRoot is a Category (iv) candidate (website
+	// defacement) and one under a DataDir a Category (v) candidate (ransomware
+	// burst) — see rules/TELEMETRY_CONTRACT.md §3–§4. Empty roots => FIM off.
+	FIMWebRoots  []string
+	FIMDataDirs  []string
+	FIMCanaryDir string
 
 	// mTLS transport (Jash's transport/ material). When SentryBaseURL is https,
 	// CACertPath verifies Sentry's server certificate and ClientCert/KeyPath
@@ -62,7 +71,23 @@ func LoadConfig() *Config {
 		CACertPath:     os.Getenv("SENTRY_CA_CERT"),
 		ClientCertPath: os.Getenv("SENTRY_CLIENT_CERT"),
 		ClientKeyPath:  os.Getenv("SENTRY_CLIENT_KEY"),
+
+		FIMWebRoots:  splitPaths(getEnvOrDefault("FIM_WEB_ROOTS", "/var/www")),
+		FIMDataDirs:  splitPaths(getEnvOrDefault("FIM_DATA_DIRS", "/srv/data")),
+		FIMCanaryDir: os.Getenv("FIM_CANARY_DIR"),
 	}
+}
+
+// splitPaths parses a ':'- or ','-separated list of filesystem paths, dropping
+// blanks. An empty string yields no paths (which turns the FIM watcher off).
+func splitPaths(s string) []string {
+	var out []string
+	for _, p := range strings.FieldsFunc(s, func(r rune) bool { return r == ':' || r == ',' }) {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func getEnvOrDefault(key, defaultValue string) string {

@@ -25,6 +25,11 @@ AGENT_BIN="${WORK}/barbarika-agent"
 DB="${WORK}/sentry.db"
 KEY="${WORK}/sentry.key"
 
+# FIM demo dirs under the real /var/www and /srv/data roots the rules anchor on
+# (category_iv arm B matches '/var/www/'), in a disposable subdir. Removed on exit.
+FIM_WEB="/var/www/barbarika-demo"
+FIM_DATA="/srv/data/barbarika-demo"
+
 SENTRY_PID=""
 AGENT_PID=""
 cleanup() {
@@ -35,7 +40,7 @@ cleanup() {
   for pid in "${AGENT_PID}" "${SENTRY_PID}"; do
     [[ -n "${pid}" ]] && kill -9 "${pid}" 2>/dev/null || true
   done
-  rm -rf "${WORK}"
+  rm -rf "${WORK}" "${FIM_WEB}" "${FIM_DATA}"
 }
 trap cleanup EXIT
 banner() { printf '\n=== %s ===\n' "$1"; }
@@ -57,6 +62,10 @@ fi
 SENTRY_PID=$!
 for _ in $(seq 1 40); do q "${BASE_URL}/health" >/dev/null 2>&1 && break; sleep 0.5; done
 printf '  health: '; q "${BASE_URL}/health"; echo
+
+banner "Preparing FIM watch roots (${FIM_WEB}, ${FIM_DATA}) + planting a canary"
+mkdir -p "${FIM_WEB}" "${FIM_DATA}"
+printf 'decoy — do not touch\n' > "${FIM_DATA}/.canary_token.docx"
 
 banner "Starting agent (SENTRY_URL=${BASE_URL})"
 printf 'Aug 19 10:14:00 web sshd[100]: Server listening on port 22\n' > "${WORK}/mock_logs/auth.log"
@@ -86,6 +95,18 @@ banner "Injecting Category (x): one app-layer exploit line (sqlmap UNION SELECT)
 printf '203.0.113.66 - - [19/Aug/2026:10:17:00 +0000] "GET /shop/item?id=1%%20UNION%%20SELECT%%20username,password%%20FROM%%20users-- HTTP/1.1" 500 512 "-" "sqlmap/1.7.2#stable (https://sqlmap.org)"\n' >> "${WORK}/mock_logs/nginx_access.log"
 sleep 4
 q "${BASE_URL}/incidents" | python3 -c "import sys,json;d=json.load(sys.stdin);xs=[i for i in d if i['category']=='x'];assert xs,'no Category (x) incident fired';print(f'  Category (x) incident: {xs[0][\"rule_title\"][:64]} ({len(xs[0][\"event_ids\"])} event)')"
+
+banner "Injecting Category (iv): web exploit (nginx) + web-root file change (FIM), <120s"
+printf '185.220.101.9 - - [19/Aug/2026:10:18:00 +0000] "POST /wp-admin/admin-ajax.php?action=upload HTTP/1.1" 200 31 "-" "python-requests/2.32"\n' >> "${WORK}/mock_logs/nginx_access.log"
+printf '<?php /* defaced by test */ ?>\n' > "${FIM_WEB}/index.php"
+sleep 4
+q "${BASE_URL}/incidents" | python3 -c "import sys,json;d=json.load(sys.stdin);xs=[i for i in d if i['category']=='iv'];assert xs,'no Category (iv) incident fired';print(f'  Category (iv) incident: {xs[0][\"rule_title\"][:64]} ({len(xs[0][\"event_ids\"])} events)')"
+
+banner "Injecting Category (v): >=10 data-file writes + canary alteration (FIM), <30s"
+for i in $(seq 1 12); do printf 'ENCRYPTED-%s\n' "$i" > "${FIM_DATA}/report_${i}.xlsx.locked"; done
+printf 'tampered\n' >> "${FIM_DATA}/.canary_token.docx"
+sleep 4
+q "${BASE_URL}/incidents" | python3 -c "import sys,json;d=json.load(sys.stdin);xs=[i for i in d if i['category']=='v'];assert xs,'no Category (v) incident fired';print(f'  Category (v) incident: {xs[0][\"rule_title\"][:64]} ({len(xs[0][\"event_ids\"])} events)')"
 
 banner "Verify hash chain"
 ( cd "${SENTRY_DIR}" && SENTRY_DB_PATH="${DB}" SENTRY_KEY_PATH="${KEY}" uv run python scripts/verify_chain.py --db "${DB}" )
