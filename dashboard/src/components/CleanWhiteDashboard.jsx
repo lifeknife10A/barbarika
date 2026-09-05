@@ -113,6 +113,41 @@ function LogFeed({ logs }) {
   );
 }
 
+// ── events-by-severity (real aggregation of the live feed) ───────────────────
+const SEV_META = {
+  critical: { label: 'Critical', color: '#d94a4a' },
+  warn: { label: 'Warning', color: '#eb9f0a' },
+  notice: { label: 'Notice', color: '#3987e5' },
+  info: { label: 'Info', color: '#94a3b8' },
+};
+const SEV_ORDER = ['critical', 'warn', 'notice', 'info'];
+
+function SeverityMix({ logs }) {
+  const rows = useMemo(() => {
+    const counts = {};
+    for (const l of logs) counts[l.level] = (counts[l.level] || 0) + 1;
+    const max = Math.max(1, ...Object.values(counts));
+    return SEV_ORDER.filter((k) => counts[k]).map((k) => ({
+      key: k, ...SEV_META[k], count: counts[k], pct: (counts[k] / max) * 100,
+    }));
+  }, [logs]);
+
+  return (
+    <div className="space-y-2 pt-1">
+      {rows.length === 0 && <div className="text-[11px] text-slate-400">no events yet</div>}
+      {rows.map((r) => (
+        <div key={r.key} className="flex items-center gap-3">
+          <span className="w-14 text-[11px] text-slate-500 shrink-0">{r.label}</span>
+          <div className="flex-1 h-2.5 rounded-full bg-slate-100 overflow-hidden">
+            <div className="h-full rounded-full" style={{ width: `${Math.max(4, r.pct)}%`, background: r.color }} />
+          </div>
+          <span className="w-8 text-right text-[11px] font-mono tabular-nums text-slate-700">{r.count}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── chart card ────────────────────────────────────────────────────────────────
 function ChartCard({ title, right, children, className = '' }) {
   return (
@@ -181,14 +216,10 @@ export default function CleanWhiteDashboard() {
           </ChartCard>
 
           <ChartCard
-            title={`${m.hostLoad.title} · ${m.hostLoad.spanLabel}`}
-            right={
-              <span className="text-sm font-bold text-slate-900 tabular-nums">
-                {m.hostLoad.series.at(-1)}<span className="text-[11px] font-medium text-slate-400 ml-1">{m.hostLoad.unit}</span>
-              </span>
-            }
+            title="Events by severity"
+            right={<span className="text-sm font-bold text-slate-900 tabular-nums">{m.logs.length}<span className="text-[11px] font-medium text-slate-400 ml-1">shown</span></span>}
           >
-            <Sparkline series={m.hostLoad.series} h={48} stroke="#6366f1" fill="rgba(99,102,241,0.10)" />
+            <SeverityMix logs={m.logs} />
           </ChartCard>
         </div>
 

@@ -60,13 +60,9 @@ export const systemModel = {
     spanLabel: 'last 30 min',
   },
 
-  // ── Secondary small chart under EPM (always has a shape, balances the column) ─
-  hostLoad: {
-    title: 'Host CPU',
-    unit: '%',
-    spanLabel: 'last 30 min',
-    series: [19, 22, 20, 24, 21, 26, 23, 22, 28, 24, 21, 25, 24, 30, 27, 23, 22, 26, 24, 21, 25, 23, 22, 29, 26, 24, 22, 24, 27, 25],
-  },
+  // (The secondary chart under EPM is the live "events by severity" mix — it is
+  //  aggregated from `logs` at render time, so there is no separate data source
+  //  to keep here: real when connected, the mock feed below when offline.)
 
   // ── Incoming log feed (dummy rows; the container is scrollable + minimal) ─────
   // level ∈ info | notice | warn | critical  (drives a single dot colour)
