@@ -1,0 +1,7 @@
+# Runtime audit trail (appended per report generation)
+audit.log.jsonl
+# Local build/venv/test caches
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/

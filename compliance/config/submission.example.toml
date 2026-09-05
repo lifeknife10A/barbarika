@@ -1,0 +1,46 @@
+# Barbarika — CERT-In submission config. Filled ONCE by the reporting officer / CISO.
+# Everything not here is auto-filled from the evidence vault. Copy to submission.toml.
+
+[reporter]
+i_am              = "the effected entity"          # or "reporting incident affecting other entity"
+name_role         = "Priya Shah, Chief Information Security Officer"
+kind              = "Organization"                  # Individual | Organization
+organization_name = "Meridian FinServ Pvt. Ltd. (Udyam: UDYAM-MH-18-0099421)"
+contact_no        = "+91-22-4000-1200"
+email             = "ciso@meridianfinserv.in"
+address           = "Unit 7, Techpark One, Andheri East, Mumbai, Maharashtra 400093, India"
+
+[affected_entity]
+same_as_reporter  = true
+name              = ""
+
+[affected_system]
+domain_url        = "portal.meridianfinserv.in"
+ip_address        = "auto"                          # "auto" = extract from evidence, else set explicitly
+operating_system  = "Ubuntu 24.04 LTS (Linux 6.8)"
+make_model_cloud  = "AWS EC2 m6i.large (ap-south-1)"
+application        = "Nginx 1.24 + internal e-commerce API"
+location          = "Mumbai, Maharashtra, India"
+isp                = "Amazon Data Services India"
+mission_critical   = "Yes"
+mission_critical_note = "Primary production host processing customer financial transactions."
+
+[incident]
+noticed_at        = "auto"                          # ISO-8601, or "auto" = earliest detection time in evidence
+confirmed_at      = ""                               # ISO-8601 of CISO confirmation; blank = report generation time
+occurrence_override = ""                             # ISO-8601 to override the derived occurrence time
+impact_summary    = "Unauthorised privileged access obtained on the production host; no confirmed data exfiltration at time of filing. Investigation ongoing."
+remediation       = [
+  "Isolated the affected host from the production network.",
+  "Rotated all SSH keys and privileged account credentials.",
+  "Preserved the tamper-evident evidence vault for forensic analysis.",
+  "Enabled additional monitoring and blocked the offending source IPs at the edge.",
+]
+
+[reviewer]
+name              = "Priya Shah"
+role              = "Chief Information Security Officer"
+
+[recipients]
+to                = "incident@cert-in.org.in"
+cc                = "soc@meridianfinserv.in"

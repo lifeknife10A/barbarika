@@ -6,6 +6,8 @@ import { defineConfig } from 'vite'
 // Sentry backend for the dev proxy. Point at a dev-insecure (plaintext) Sentry;
 // override with SENTRY_ORIGIN when it runs elsewhere.
 const SENTRY_ORIGIN = process.env.SENTRY_ORIGIN || 'http://127.0.0.1:8000'
+// Krishna-owned compliance service (fills the official CERT-In form from the vault).
+const COMPLIANCE_ORIGIN = process.env.COMPLIANCE_ORIGIN || 'http://127.0.0.1:8100'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -13,9 +15,14 @@ export default defineConfig({
     port: 5173,
     strictPort: false,
     host: '0.0.0.0',
-    // Same-origin bridge: browser calls /api/* → Sentry. Avoids CORS and keeps
-    // the browser off mTLS (Sentry terminates TLS itself in production).
+    // Same-origin bridge. /api/compliance/* → the compliance service (more
+    // specific, must be declared first); everything else /api/* → Sentry.
     proxy: {
+      '/api/compliance': {
+        target: COMPLIANCE_ORIGIN,
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/api\/compliance/, ''),
+      },
       '/api': {
         target: SENTRY_ORIGIN,
         changeOrigin: true,
