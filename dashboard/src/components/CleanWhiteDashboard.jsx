@@ -172,19 +172,22 @@ function SeverityMix({ logs }) {
 }
 
 // ── active incidents (Anishka's detection rules firing) ──────────────────────
+// The four live CERT-In detection categories. (Category ii "compromise of
+// critical systems" is NOT here — it is the watchdog's review-required
+// candidate from the dead-man switch, not a detection rule.)
 const CAT_NAME = {
-  iii: 'Unauthorised access', iv: 'Website intrusion', v: 'Malicious code',
-  x: 'Application attack', ii: 'Compromise of critical systems',
+  iii: 'Unauthorised access', iv: 'Website intrusion',
+  v: 'Malicious code', x: 'Application attack',
 };
-// One distinct hue per live CERT-In category (dark enough for white badge text).
+// A hot "alarm" ramp — every category is an incident, so none reads calm;
+// distinct hues, all dark enough for white badge text (WCAG-AA).
 const CAT_COLOR = {
-  iii: '#2a78d6', // blue   — unauthorised access
-  iv: '#dd6b20', // orange — website intrusion
-  v: '#7c3aed', // violet — malicious code
-  x: '#d03b3b', // red    — application attack
-  ii: '#0f766e', // teal   — compromise of critical systems
+  iii: '#b45309', // amber-700   — unauthorised access
+  iv: '#c2410c', // orange-700  — website intrusion
+  x: '#dc2626', // red-600     — application attack
+  v: '#a21caf', // fuchsia-700 — malicious code
 };
-const catColor = (c) => CAT_COLOR[c] || '#64748b';
+const catColor = (c) => CAT_COLOR[c] || '#dc2626';
 
 function IncidentsBar({ incidents }) {
   const list = incidents || [];
