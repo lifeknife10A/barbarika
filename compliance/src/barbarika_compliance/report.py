@@ -364,10 +364,10 @@ def build_pdf(ctx: dict[str, Any], out_path: str) -> str:
 
     inc: IncidentRecord = ctx["incident"]
     writer = PdfWriter()
-    # Attach the authentic form to the writer first, THEN stamp our overlay onto
-    # it (pypdf's reliable merge path), then append the annexure pages.
-    writer.append(PdfReader(str(formfill.FORM_PATH)))
-    writer.pages[0].merge_page(formfill.overlay(ctx).pages[0])
+    # Page 1: the authentic form filled by writing on its own baselines, then the
+    # Detailed Incident Report annexure pages.
+    for page in PdfReader(BytesIO(formfill.fill_form_page(ctx))).pages:
+        writer.add_page(page)
     for page in PdfReader(_annexure_pdf(ctx)).pages:
         writer.add_page(page)
 

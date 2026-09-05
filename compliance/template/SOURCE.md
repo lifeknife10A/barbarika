@@ -17,11 +17,19 @@ below were fetched from CERT-In and are stored here for provenance and offline u
   `incident@cert-in.org.in` / Phone 1800-11-4949 / Fax 1800-11-6969. **Annexure I of the
   Directions is the list of the 20 incident TYPES (i–xx)** to be reported — NOT a
   fillable form. Statutory penalty for non-compliance: sub-section (7) of section 70B.
-- **Incident Reporting Form** (`certinirform.pdf`): the actual single-page CERT-In form
-  the entity fills. This exact PDF is shipped here and used as page 1 of the output:
-  `formfill.py` **stamps our values directly onto this authentic PDF** at the form's own
-  measured coordinates (checkboxes get an `X`, blanks get text) — it is not redrawn. Its
-  fields are:
+- **Incident Reporting Form**: shipped here twice — the authentic
+  `CERT-In_Incident_Reporting_Form.pdf` (=`certinirform.pdf`) and a DOCX conversion of the
+  same form (`CERT-In_Incident_Reporting_Form.docx`). Both are filled, giving two outputs:
+  - **Submittable PDF** (`formfill.py`, page 1): writes our values **directly onto the
+    authentic PDF**, located by the form's OWN text — for each field it finds the printed
+    label, reads its baseline, and places the value on that exact baseline at the label's
+    font size (checkboxes get an `X`). Anchored to the form's own layout, so there are no
+    brittle hardcoded coordinates and values sit on the form's lines. Uses `pymupdf`.
+  - **Editable DOCX** (`formdoc.py`): fills the values into the form's real Word table
+    cells with `python-docx`, so the reporter gets an editable copy (alignment is inherent
+    to the cells). A `docx_to_pdf()` helper can render it via headless LibreOffice **where
+    `soffice` is available** — but the primary submittable PDF above needs no LibreOffice.
+  The form's fields are:
   - "I am: [ ] the effected entity  [ ] reporting incident affecting other entity"
   - **Contact Information of the Reporter**: Name & Role/Title (Individual/Organization);
     Organization name (if any); Contact No.; Email; Address.
