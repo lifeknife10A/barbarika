@@ -68,19 +68,16 @@ export const systemModel = {
   //    GET /incidents + the SSE `incident` stream. eventIds tie each incident
   //    back to the log rows below, which the feed then flags by category. ──────
   incidents: [
-    {
-      id: 'mock-iii-1',
-      category: 'iii',
-      ruleTitle: 'SSH brute force, successful authentication, then privileged sudo',
-      ruleId: 'afe8cbd2',
-      eventIds: [1055, 1054, 1045, 1047, 1048],
-      time: '18:13:48',
-    },
+    { id: 'mock-x-1', category: 'x', ruleTitle: 'Application-layer exploitation attempt against the web/app tier', ruleId: '21cd86fa', eventIds: [1060], time: '18:15:02' },
+    { id: 'mock-iv-1', category: 'iv', ruleTitle: 'Website intrusion — web exploit correlated with a web-root file change', ruleId: 'fa172689', eventIds: [1059], time: '18:15:05' },
+    { id: 'mock-iii-1', category: 'iii', ruleTitle: 'SSH brute force, successful authentication, then privileged sudo', ruleId: 'afe8cbd2', eventIds: [1055, 1054, 1045, 1047, 1048], time: '18:13:48' },
   ],
 
   // ── Incoming log feed (dummy rows; the container is scrollable + minimal) ─────
   // level ∈ info | notice | warn | critical  (drives a single dot colour)
   logs: [
+    { id: 1060, time: '18:15:02', level: 'critical', source: '203.0.113.66',  service: 'nginx',   message: "GET /shop/item?id=1 UNION SELECT u,p FROM users-- HTTP/1.1 500 (sqlmap)", digest: 'ff01a2' },
+    { id: 1059, time: '18:15:05', level: 'warn',     source: '185.220.101.9', service: 'nginx',   message: "POST /wp-admin/admin-ajax.php?action=upload HTTP/1.1 200", digest: 'aa77bd' },
     { id: 1058, time: '18:14:41', level: 'info',     source: '203.0.113.19',  service: 'nginx',   message: "POST /api/v1/telemetry HTTP/1.1 200 client=203.0.113.19 bytes=1420", digest: 'e48109' },
     { id: 1057, time: '18:14:39', level: 'notice',   source: '127.0.0.1',     service: 'systemd', message: 'barbarika-sentry.service: sliding heartbeat seq #1842', digest: 'c20491' },
     { id: 1056, time: '18:14:31', level: 'info',     source: '10.0.4.18',     service: 'nginx',   message: "GET /api/v1/health HTTP/1.1 200 0.002s ua='Barbarika-Probe/1.4'", digest: 'b8971f' },

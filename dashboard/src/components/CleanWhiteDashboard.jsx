@@ -107,21 +107,25 @@ function LogFeed({ logs, flagged }) {
       <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-slate-100">
         {logs.map((row) => {
           const cat = flagged[row.id]; // set → this line tripped a CERT-In rule
+          const c = cat ? catColor(cat) : null;
           return (
             <div
               key={row.id}
-              className={`flex items-center gap-3 px-4 py-2 ${cat ? 'bg-red-50/80' : 'hover:bg-slate-50/80'}`}
-              style={cat ? { boxShadow: 'inset 3px 0 0 #d94a4a' } : undefined}
+              className={`flex items-center gap-3 px-4 py-2 ${cat ? '' : 'hover:bg-slate-50/80'}`}
+              style={cat ? { boxShadow: `inset 3px 0 0 ${c}`, backgroundColor: `${c}12` } : undefined}
             >
               <span className="font-mono text-[11px] text-slate-400 tabular-nums w-14 shrink-0">{row.time}</span>
-              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${cat ? 'bg-red-500' : (LEVEL_DOT[row.level] || 'bg-slate-300')}`} />
+              <span
+                className={`w-1.5 h-1.5 rounded-full shrink-0 ${cat ? '' : (LEVEL_DOT[row.level] || 'bg-slate-300')}`}
+                style={cat ? { background: c } : undefined}
+              />
               <span className="font-mono text-[11px] text-slate-500 w-16 shrink-0 truncate">{row.service}</span>
               {cat && (
-                <span className="text-[9px] font-bold uppercase text-white bg-red-500 rounded px-1.5 py-0.5 shrink-0 tracking-wide">
+                <span className="text-[9px] font-bold uppercase text-white rounded px-1.5 py-0.5 shrink-0 tracking-wide" style={{ background: c }}>
                   Cat {cat}
                 </span>
               )}
-              <span className={`text-[12px] flex-1 min-w-0 truncate ${cat ? 'text-red-900 font-medium' : 'text-slate-700'}`}>{row.message}</span>
+              <span className={`text-[12px] flex-1 min-w-0 truncate ${cat ? 'text-slate-900 font-medium' : 'text-slate-700'}`}>{row.message}</span>
               <span className="font-mono text-[11px] text-slate-400 tabular-nums w-28 shrink-0 truncate hidden lg:block">{row.source}</span>
               <span className="font-mono text-[10px] text-slate-400 bg-slate-100 rounded px-1.5 py-0.5 shrink-0 hidden md:block">{row.digest}</span>
             </div>
@@ -172,6 +176,15 @@ const CAT_NAME = {
   iii: 'Unauthorised access', iv: 'Website intrusion', v: 'Malicious code',
   x: 'Application attack', ii: 'Compromise of critical systems',
 };
+// One distinct hue per live CERT-In category (dark enough for white badge text).
+const CAT_COLOR = {
+  iii: '#2a78d6', // blue   — unauthorised access
+  iv: '#dd6b20', // orange — website intrusion
+  v: '#7c3aed', // violet — malicious code
+  x: '#d03b3b', // red    — application attack
+  ii: '#0f766e', // teal   — compromise of critical systems
+};
+const catColor = (c) => CAT_COLOR[c] || '#64748b';
 
 function IncidentsBar({ incidents }) {
   const list = incidents || [];
@@ -193,8 +206,8 @@ function IncidentsBar({ incidents }) {
       </div>
       <div className="flex gap-2 px-3 py-2 overflow-x-auto">
         {list.map((i) => (
-          <div key={i.id} className="flex items-center gap-2 shrink-0 rounded-lg border border-slate-200 bg-slate-50 pl-1.5 pr-3 py-1.5">
-            <span className="text-[10px] font-bold uppercase text-white bg-red-500 rounded px-1.5 py-0.5">Cat {i.category}</span>
+          <div key={i.id} className="flex items-center gap-2 shrink-0 rounded-lg border border-slate-200 bg-slate-50 pl-1.5 pr-3 py-1.5" style={{ boxShadow: `inset 3px 0 0 ${catColor(i.category)}` }}>
+            <span className="text-[10px] font-bold uppercase text-white rounded px-1.5 py-0.5" style={{ background: catColor(i.category) }}>Cat {i.category}</span>
             <div className="min-w-0">
               <div className="text-[12px] text-slate-800 font-medium max-w-[300px] truncate leading-tight">{i.ruleTitle}</div>
               <div className="text-[10px] text-slate-400 font-mono">{CAT_NAME[i.category] || 'detection'} · {i.time}</div>
