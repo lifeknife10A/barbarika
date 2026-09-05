@@ -192,10 +192,7 @@ def _annexure_flowables(ctx: dict[str, Any]) -> list:
     asys = s["affected_system"]
     out: list = [
         Paragraph("Detailed Incident Report", _TITLE),
-        Spacer(1, 1),
-        Paragraph("Barbarika Evidence Annexure to the CERT-In Incident Reporting Form — "
-                  "tamper-evident provenance and full technical analysis for the reported incident.", _SMALL),
-        Spacer(1, 6),
+        Spacer(1, 8),
     ]
 
     # 1. Executive summary
@@ -336,12 +333,6 @@ def _annexure_flowables(ctx: dict[str, Any]) -> list:
         [Paragraph("Reporting status", _PB),
          Paragraph("Submitted to CERT-In within the statutory 6-hour window; investigation ongoing.", _P)],
     ], col0=55 * mm))
-    out.append(Spacer(1, 6))
-
-    out.append(Paragraph(
-        "<b>Human-in-the-loop:</b> this report was prepared for authorised submission by the named reviewer and "
-        "is not auto-dispatched to CERT-In. Provenance re-verified by the Barbarika Compliance Engine from the "
-        "sealed evidence vault.", _SMALL))
     return out
 
 
@@ -352,7 +343,6 @@ def _decorate_annex(canvas, doc):
     canvas.saveState()
     canvas.setFont("Helvetica", 7)
     canvas.setFillColor(colors.HexColor("#888"))
-    canvas.drawString(15 * mm, 8 * mm, "CONFIDENTIAL — CERT-In statutory incident report")
     canvas.drawRightString(A4[0] - 15 * mm, 8 * mm, f"Page {doc.page + 1}")
     canvas.restoreState()
 

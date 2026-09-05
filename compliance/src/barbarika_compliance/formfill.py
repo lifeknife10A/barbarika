@@ -51,57 +51,73 @@ def overlay(ctx: dict[str, Any]) -> PdfReader:
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
 
-    def put(x: float, y_top: float, s_: str, size: float = 9, font: str = "Helvetica") -> None:
+    # Descender nudge: a printed label's text sits ~2.3pt above its bbox bottom
+    # (y1). Anchoring our value's baseline to the same point makes it sit exactly
+    # on the label's line rather than floating above or dipping below it.
+    _NUDGE = 2.3
+
+    def field(x: float, label_y1: float, s_: str, size: float = 9,
+              font: str = "Helvetica") -> None:
+        """Write a value whose baseline matches the label at bbox-bottom label_y1."""
         if not s_:
             return
         c.setFont(font, size)
-        c.drawString(x, _H - y_top, str(s_))
+        c.drawString(x, _H - label_y1 + _NUDGE, str(s_))
 
-    def check(x: float, y_top: float) -> None:
+    def block(x: float, top_y: float, s_: str, size: float = 8,
+              font: str = "Helvetica") -> None:
+        """Write a value at an absolute baseline (top-left origin) for free cells."""
+        if not s_:
+            return
+        c.setFont(font, size)
+        c.drawString(x, _H - top_y, str(s_))
+
+    def check(x: float, label_y1: float) -> None:
         c.setFont("Helvetica-Bold", 10)
-        c.drawString(x, _H - y_top, "X")
+        c.drawString(x, _H - label_y1 + _NUDGE, "X")
 
-    # --- "I am" ---
+    # --- "I am" (label bbox bottoms measured from the form) ---
     if rep["i_am"].startswith("the effected"):
-        check(66.0, 42.0)
+        check(67.0, 44.1)
     else:
-        check(165.0, 41.5)
+        check(166.0, 43.2)
 
     # --- Contact Information of the Reporter ---
-    put(120.0, 76.0, rep["name_role"], size=9)
+    field(120.0, 77.9, rep["name_role"])
     if rep["kind"] == "Individual":
-        check(440.0, 75.5)
+        check(440.0, 76.4)
     else:
-        check(497.0, 74.5)
-    put(151.0, 94.5, rep["organization_name"], size=9)
-    put(95.0, 112.5, rep["contact_no"], size=9)
-    put(362.0, 112.5, rep["email"], size=9)
-    for i, line in enumerate(_wrap(rep["address"], 95)[:3]):
-        put(70.0, 141.0 + i * 12, line, size=9)
+        check(497.0, 75.3)
+    field(151.0, 95.9, rep["organization_name"])
+    field(95.0, 113.8, rep["contact_no"])
+    field(362.0, 113.8, rep["email"])
+    # Address stays inside its left sub-cell (a column divider runs at x~292).
+    for i, line in enumerate(_wrap(rep["address"], 40)[:3]):
+        field(75.0 if i == 0 else 30.0, 131.7 + i * 12, line, size=9)
 
     # --- Basic Incident Details ---
     aff_entity = "Same as reporting entity" if af["same_as_reporter"] else af["name"]
-    put(435.0, 205.0, aff_entity, size=9)
+    block(435.0, 202.0, aff_entity, size=9)
 
     # --- Incident Type checkbox (matched category) ---
     cid = ctx["cid"]
     if cid in _TYPE_CHECKBOX_Y:
-        check(_TYPE_CHECKBOX_X, _TYPE_CHECKBOX_Y[cid] + 8.0)
+        check(_TYPE_CHECKBOX_X, _TYPE_CHECKBOX_Y[cid] + 9.0)
 
     # --- Mission critical (Yes/No + note) ---
-    put(435.0, 462.0, f'{asys["mission_critical"]} — ', size=9, font="Helvetica-Bold")
+    block(435.0, 462.0, f'{asys["mission_critical"]} — ', size=9, font="Helvetica-Bold")
     for i, line in enumerate(_wrap(asys["mission_critical_note"], 42)[:3]):
-        put(435.0, 462.0 + 12 + i * 11, line, size=8)
+        block(435.0, 474.0 + i * 11, line, size=8)
 
     # --- Basic Information of Affected System (right column, after each label) ---
-    put(287.0, 506.5, asys["domain_url"], size=8)
-    put(277.0, 521.8, ctx["affected_ip"], size=8)
-    put(310.0, 537.3, asys["operating_system"], size=8)
-    put(353.0, 552.8, asys["make_model_cloud"], size=8)
-    put(387.0, 568.2, asys["application"], size=8)
+    field(287.0, 507.4, asys["domain_url"], size=8)
+    field(277.0, 522.8, ctx["affected_ip"], size=8)
+    field(310.0, 538.3, asys["operating_system"], size=8)
+    field(353.0, 553.8, asys["make_model_cloud"], size=8)
+    field(387.0, 569.1, asys["application"], size=8)
     # Location label runs to the right margin; put its value on the blank line below.
-    put(228.0, 596.0, asys["location"], size=8)
-    put(344.0, 614.5, asys["isp"], size=8)
+    block(228.0, 596.0, asys["location"], size=8)
+    field(344.0, 615.4, asys["isp"], size=8)
 
     # --- Brief description of Incident (left cell, below the label) ---
     desc = (f'{ctx["rule"].get("title", ctx["incident"].rule_title)}. '
@@ -110,11 +126,11 @@ def overlay(ctx: dict[str, Any]) -> PdfReader:
             f'vault (see attached Detailed Incident Report). '
             f'Impact: {s["incident"]["impact_summary"]}')
     for i, line in enumerate(_wrap(desc, 55)[:14]):
-        put(30.0, 648.0 + i * 11, line, size=8)
+        block(30.0, 648.0 + i * 11, line, size=8)
 
     # --- Occurrence / Detection date & time (after the "hh:mm):" label) ---
-    put(439.0, 632.0, fmt_ist(ctx["occurrence"]), size=8)
-    put(431.0, 647.4, fmt_ist(ctx["detection"]), size=8)
+    field(439.0, 633.5, fmt_ist(ctx["occurrence"]), size=8)
+    field(431.0, 648.8, fmt_ist(ctx["detection"]), size=8)
 
     c.showPage()
     c.save()
