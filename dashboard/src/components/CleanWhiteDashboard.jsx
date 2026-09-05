@@ -148,6 +148,45 @@ function SeverityMix({ logs }) {
   );
 }
 
+// ── active incidents (Anishka's detection rules firing) ──────────────────────
+const CAT_NAME = {
+  iii: 'Unauthorised access', iv: 'Website intrusion', v: 'Malicious code',
+  x: 'Application attack', ii: 'Compromise of critical systems',
+};
+
+function IncidentsBar({ incidents }) {
+  const list = incidents || [];
+  if (list.length === 0) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl bg-white border border-slate-200 shadow-sm px-4 py-2">
+        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+        <span className="text-[11px] font-bold uppercase tracking-widest text-slate-500">Active Incidents</span>
+        <span className="text-[12px] text-slate-400">— none · monitoring</span>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-xl bg-white border border-red-200 shadow-sm overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-1.5 bg-red-50/60 border-b border-red-100">
+        <span className="w-2 h-2 rounded-full bg-red-500" />
+        <span className="text-[11px] font-bold uppercase tracking-widest text-red-700">Active Incidents</span>
+        <span className="text-[11px] font-mono text-red-600">{list.length}</span>
+      </div>
+      <div className="flex gap-2 px-3 py-2 overflow-x-auto">
+        {list.map((i) => (
+          <div key={i.id} className="flex items-center gap-2 shrink-0 rounded-lg border border-slate-200 bg-slate-50 pl-1.5 pr-3 py-1.5">
+            <span className="text-[10px] font-bold uppercase text-white bg-red-500 rounded px-1.5 py-0.5">Cat {i.category}</span>
+            <div className="min-w-0">
+              <div className="text-[12px] text-slate-800 font-medium max-w-[300px] truncate leading-tight">{i.ruleTitle}</div>
+              <div className="text-[10px] text-slate-400 font-mono">{CAT_NAME[i.category] || 'detection'} · {i.time}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── chart card ────────────────────────────────────────────────────────────────
 function ChartCard({ title, right, children, className = '' }) {
   return (
@@ -190,6 +229,9 @@ export default function CleanWhiteDashboard() {
           tiles={m.sentryHealth.tiles}
         />
       </div>
+
+      {/* ── Active incidents (detection rules firing) ── */}
+      <IncidentsBar incidents={m.incidents} />
 
       {/* ── Row 2: charts (left) + scrollable feed (right, fills height) ── */}
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-3">
