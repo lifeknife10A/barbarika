@@ -18,7 +18,10 @@ below were fetched from CERT-In and are stored here for provenance and offline u
   Directions is the list of the 20 incident TYPES (i–xx)** to be reported — NOT a
   fillable form. Statutory penalty for non-compliance: sub-section (7) of section 70B.
 - **Incident Reporting Form** (`certinirform.pdf`): the actual single-page CERT-In form
-  the entity fills. Its structure is reproduced verbatim by `report.py`:
+  the entity fills. This exact PDF is shipped here and used as page 1 of the output:
+  `formfill.py` **stamps our values directly onto this authentic PDF** at the form's own
+  measured coordinates (checkboxes get an `X`, blanks get text) — it is not redrawn. Its
+  fields are:
   - "I am: [ ] the effected entity  [ ] reporting incident affecting other entity"
   - **Contact Information of the Reporter**: Name & Role/Title (Individual/Organization);
     Organization name (if any); Contact No.; Email; Address.
@@ -32,6 +35,10 @@ below were fetched from CERT-In and are stored here for provenance and offline u
   - Note (i)(ii)(iii) + Mail/Fax footer.
 
 The form's own Note (ii): "It is not mandatory to fill and/or sign this form. Incidents
-may also be reported by providing relevant information …". Barbarika auto-fills it for the
-reporter's convenience and appends evidence annexes (hash-chain integrity attestation,
-chronological evidence log, detection rationale) that go beyond the minimum form.
+may also be reported by providing relevant information …", and Note (iii) permits the
+reporting entity to "also provide relevant information other than mentioned in this form".
+On that basis (and the Directions' requirement that logs accompany the report), Barbarika
+auto-fills the form for the reporter and appends a **Detailed Incident Report** annexure
+modelled on NIST SP 800-61 / SANS: executive summary, incident timeline, technical
+analysis & detection rationale, impact & scope, indicators of compromise, cryptographic
+integrity attestation, the unmasked chronological evidence log, and response & remediation.

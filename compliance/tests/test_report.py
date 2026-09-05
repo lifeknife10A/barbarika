@@ -36,6 +36,20 @@ def test_pdf_is_flat_no_acroform(seeded_vault, submission_toml, tmp_path, monkey
     assert "/AcroForm" not in root
 
 
+def test_page_one_is_the_authentic_government_form(seeded_vault, submission_toml, tmp_path, monkeypatch):
+    res = _generate(seeded_vault, submission_toml, tmp_path, monkeypatch)
+    reader = PdfReader(res["pdf"])
+    page1 = reader.pages[0].extract_text() or ""
+    # Text that only exists on the real CERT-In form (not our annexure): proves
+    # we stamped the authentic PDF rather than redrawing a lookalike.
+    assert "Incident Reporting Form" in page1
+    assert "It is not mandatory to fill" in page1
+    assert "Electronics Niketan" in page1
+    # Our stamped values landed on that same page.
+    assert seeded_vault["reviewer"] in page1            # Name & Role/Title
+    assert seeded_vault["attacker_ip"] in page1         # IP Address field
+
+
 def test_pdf_text_carries_the_statutory_essentials(seeded_vault, submission_toml, tmp_path, monkeypatch):
     res = _generate(seeded_vault, submission_toml, tmp_path, monkeypatch)
     reader = PdfReader(res["pdf"])
@@ -48,6 +62,22 @@ def test_pdf_text_carries_the_statutory_essentials(seeded_vault, submission_toml
     assert seeded_vault["attacker_ip"] in text          # unmasked IOC
     assert seeded_vault["reviewer"] in text             # human reviewer sign-off
     assert res["audit_ref"] in text                     # audit reference cited
+
+
+def test_detailed_report_has_full_ir_sections(seeded_vault, submission_toml, tmp_path, monkeypatch):
+    res = _generate(seeded_vault, submission_toml, tmp_path, monkeypatch)
+    reader = PdfReader(res["pdf"])
+    text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    for heading in (
+        "Detailed Incident Report", "Executive summary", "Statutory basis",
+        "Incident timeline", "Technical analysis", "Impact",
+        "Indicators of compromise", "Evidence provenance", "evidence log",
+        "Response",
+    ):
+        assert heading in text, f"missing section: {heading}"
+    # IOC extraction surfaced the targeted account and MITRE technique.
+    assert "admin" in text
+    assert "T1110.001" in text
 
 
 def test_locked_pdf_metadata(seeded_vault, submission_toml, tmp_path, monkeypatch):

@@ -1,27 +1,38 @@
-"""Render the authentic CERT-In Incident Reporting Form (certinirform.pdf layout),
-filled from the vault, followed by Barbarika evidence-integrity annexes.
+"""Produce the CERT-In incident report PDF: page 1 is the AUTHENTIC official
+Incident Reporting Form (the shipped government PDF) stamped with our values,
+followed by a full Detailed Incident Report annexure (executive summary,
+timeline, technical analysis, impact, IOCs, cryptographic integrity, unmasked
+evidence log, response & remediation) modelled on NIST SP 800-61 / SANS.
 
-Flat, non-editable PDF (ReportLab, no interactive form fields), locked metadata.
+The official form itself invites this: its footnote says the form is not
+mandatory and the reporting entity may attach additional relevant information;
+the 2022 Directions also require logs to accompany the report. Flat,
+non-editable PDF (no interactive form fields), locked metadata.
 """
 
 from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta, timezone
+from io import BytesIO
 from typing import Any
 
+from pypdf import PdfReader, PdfWriter
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import (
-    KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
+    Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
 )
 
 from . import certin
 from .model import ChainAttestation, IncidentRecord
 from .rules import rule_details
+
+_ACCOUNT = re.compile(r"\b(?:for|user)\s+(?:invalid user\s+)?([A-Za-z_][\w.-]*)")
+_PORT = re.compile(r"\bport\s+(\d{1,5})\b")
 
 IST = timezone(timedelta(hours=5, minutes=30))
 _GRAY = colors.HexColor("#c8c8c8")
@@ -33,7 +44,7 @@ _P = ParagraphStyle("cell", parent=_ss["BodyText"], fontName="Helvetica", fontSi
 _PB = ParagraphStyle("cellb", parent=_P, fontName="Helvetica-Bold")
 _SMALL = ParagraphStyle("small", parent=_P, fontSize=7, leading=8.5, textColor=colors.HexColor("#444"))
 _TITLE = ParagraphStyle("title", parent=_ss["Title"], fontName="Helvetica-Bold", fontSize=13, alignment=TA_CENTER)
-_H = ParagraphStyle("h", parent=_PB, fontSize=9.5)
+_H = ParagraphStyle("h", parent=_PB, fontSize=9.5, spaceBefore=2, spaceAfter=4)
 
 
 # ---- time + IOC helpers ------------------------------------------------------
@@ -117,15 +128,7 @@ def _all_ips(incident: IncidentRecord) -> list[str]:
     return out
 
 
-# ---- form (page 1) -----------------------------------------------------------
-
-def _bar(text: str) -> Table:
-    t = Table([[Paragraph(f"<b>{text}</b>", _H)]], colWidths=[180 * mm])
-    t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), _GRAY),
-                           ("BOX", (0, 0), (-1, -1), 0.5, _INK),
-                           ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3)]))
-    return t
-
+# ---- shared table style ------------------------------------------------------
 
 def _kv_table(rows: list[list[Any]], col0=55 * mm) -> Table:
     t = Table(rows, colWidths=[col0, 180 * mm - col0])
@@ -138,121 +141,153 @@ def _kv_table(rows: list[list[Any]], col0=55 * mm) -> Table:
     return t
 
 
-def _incident_type_checklist(matched: str | None):
-    items = certin.INCIDENT_TYPES
-    cols = [items[0:7], items[7:14], items[14:20]]
-    cells = []
-    for col in cols:
-        lines = []
-        for cid, label in col:
-            box = "[X]" if cid == matched else "[&nbsp;&nbsp;]"
-            strong = ' color="#b00000"' if cid == matched else ""
-            lines.append(f'<font{strong}>{box}</font> {label}')
-        cells.append(Paragraph("<br/>".join(lines), _SMALL))
-    t = Table([cells], colWidths=[60 * mm, 60 * mm, 60 * mm])
-    t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("BOX", (0, 0), (-1, -1), 0.5, _INK),
-                           ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#999")),
-                           ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4)]))
-    return t
+def _accounts(incident: IncidentRecord) -> list[str]:
+    seen: list[str] = []
+    for ev in incident.events:
+        for acct in _ACCOUNT.findall(ev.raw_message or ""):
+            if acct not in seen:
+                seen.append(acct)
+        u = (ev.payload or {}).get("user") or (ev.payload or {}).get("username")
+        if isinstance(u, str) and u and u not in seen:
+            seen.append(u)
+    return seen
 
 
-def _form_flowables(ctx: dict[str, Any]) -> list:
+def _ports(incident: IncidentRecord) -> list[str]:
+    seen: list[str] = []
+    for ev in incident.events:
+        for p in _PORT.findall(ev.raw_message or ""):
+            if p not in seen:
+                seen.append(p)
+    return seen
+
+
+# ---- Detailed Incident Report (annexure) -------------------------------------
+
+def _exec_summary(ctx: dict[str, Any]) -> str:
+    inc: IncidentRecord = ctx["incident"]
     s = ctx["submission"]
-    rep, af, asys = s["reporter"], s["affected_entity"], s["affected_system"]
-    ind = "[X]" if rep["kind"] == "Individual" else "[&nbsp;&nbsp;]"
-    org = "[X]" if rep["kind"] == "Organization" else "[&nbsp;&nbsp;]"
-    iam1 = "[X]" if rep["i_am"].startswith("the effected") else "[&nbsp;&nbsp;]"
-    iam2 = "[X]" if not rep["i_am"].startswith("the effected") else "[&nbsp;&nbsp;]"
+    host = ctx["affected_ip"] or s["affected_system"]["domain_url"] or "the monitored host"
+    osname = s["affected_system"]["operating_system"]
+    ips = ", ".join(ctx["ips"]) or "internal source(s)"
+    dl = fmt_ist(ctx["deadline"]) if ctx["deadline"] else "—"
+    return (
+        f'On <b>{fmt_ist(ctx["occurrence"])}</b>, the Barbarika Sentry evidence pipeline detected '
+        f'<b>{inc.rule_title}</b> affecting <b>{host}</b>'
+        + (f' ({osname})' if osname else '')
+        + f'. The activity is classified as CERT-In <b>{ctx["numeral"]} — {ctx["type_label"]}</b>, '
+        f'evidenced by <b>{len(inc.events)}</b> correlated events sealed in the tamper-evident vault. '
+        f'{ctx["attack_vector"]} Attacker indicator(s): <b>{ips}</b>. '
+        f'The incident was noticed at <b>{fmt_ist(ctx["noticed"])}</b> (statutory 6-hour reporting '
+        f'deadline <b>{dl}</b>). {s["incident"]["impact_summary"]} '
+        f'This report is filed under sub-section (6) of section 70B of the IT Act, 2000, within the '
+        f'mandatory 6-hour window, with independently re-verified cryptographic evidence attached.'
+    )
 
-    out: list = [Paragraph("Incident Reporting Form", _TITLE), Spacer(1, 3)]
-    out.append(Paragraph(
-        f'<b>I am:</b> &nbsp; {iam1} the effected entity &nbsp;&nbsp; {iam2} reporting incident affecting other entity',
-        _P))
-    out.append(Spacer(1, 4))
-    out.append(_bar("Contact Information of the Reporter"))
-    out.append(_kv_table([
-        [Paragraph("Name &amp; Role/Title", _PB), Paragraph(f'{rep["name_role"]} &nbsp;&nbsp; {ind} Individual &nbsp; {org} Organization', _P)],
-        [Paragraph("Organization name (if any)", _PB), Paragraph(rep["organization_name"], _P)],
-        [Paragraph("Contact No.", _PB), Paragraph(f'{rep["contact_no"]} &nbsp;&nbsp; <b>Email:</b> {rep["email"]}', _P)],
-        [Paragraph("Address:", _PB), Paragraph(rep["address"], _P)],
-    ]))
-    out.append(Spacer(1, 4))
-    out.append(_bar("Basic Incident Details"))
-    aff_entity = "" if af["same_as_reporter"] else af["name"]
-    out.append(_kv_table([[Paragraph("Affected entity<br/>(if not same as reporting entity above)", _PB),
-                           Paragraph(aff_entity or "Same as reporting entity", _P)]]))
-    out.append(Table([[Paragraph("<b>Incident Type</b>", _H)]], colWidths=[180 * mm],
-                     style=TableStyle([("ALIGN", (0, 0), (-1, -1), "CENTER"), ("BOX", (0, 0), (-1, -1), 0.5, _INK)])))
-    out.append(_incident_type_checklist(ctx["cid"]))
-    out.append(_kv_table([
-        [Paragraph("Is the affected system/network critical to the organization&rsquo;s mission? (Yes / No). (Brief details.)", _PB),
-         Paragraph(f'<b>{asys["mission_critical"]}</b> — {asys["mission_critical_note"]}', _P)],
-    ], col0=70 * mm))
-    sysinfo = "<br/>".join([
-        f'<b>Domain/URL:</b> {asys["domain_url"]}', f'<b>IP Address:</b> {ctx["affected_ip"]}',
-        f'<b>Operating System:</b> {asys["operating_system"]}', f'<b>Make/ Model/Cloud details:</b> {asys["make_model_cloud"]}',
-        f'<b>Affected Application details (If any):</b> {asys["application"]}',
-        f'<b>Location of affected system (including City, Region &amp; Country):</b> {asys["location"]}',
-        f'<b>Network and name of ISP:</b> {asys["isp"]}',
-    ])
-    out.append(_kv_table([[Paragraph("Basic Information of Affected System<br/>(Provide information that is readily available.)", _PB),
-                           Paragraph(sysinfo, _P)]], col0=55 * mm))
-    desc = (f'{ctx["rule"].get("title", ctx["incident"].rule_title)}. {ctx["attack_vector"]} '
-            f'{len(ctx["incident"].events)} correlated events recorded in the tamper-evident vault '
-            f'(see Barbarika Evidence Annexure). Impact: {s["incident"]["impact_summary"]}')
-    datetimes = (f'<b>Occurrence date &amp; time (dd/mm/yyyy hh:mm):</b> {fmt_ist(ctx["occurrence"])}<br/>'
-                 f'<b>Detection date &amp; time (dd/mm/yyyy hh:mm):</b> {fmt_ist(ctx["detection"])}')
-    out.append(_kv_table([[Paragraph("Brief description of Incident:", _PB),
-                           Paragraph(desc + "<br/><br/>" + datetimes, _P)]], col0=55 * mm))
-    out.append(Spacer(1, 3))
-    out.append(Paragraph(
-        "<b>Note:</b> (i) This form provides general guidance in terms of information which could be relevant "
-        "to the incident. (ii) It is not mandatory to fill and/or sign this form. Incidents may also be reported "
-        "by providing relevant information in the communication itself or in any other readable form. "
-        "(iii) Reporting entity may, if desired, also provide relevant information other than mentioned in this form.",
-        _SMALL))
-    out.append(Paragraph(
-        f'<b>Mail/Fax incident reports to:</b> {certin.REPORTING_CHANNEL["address"]} &nbsp; '
-        f'Fax: {certin.REPORTING_CHANNEL["fax"]} &nbsp; or email at: {certin.REPORTING_CHANNEL["email"]}', _SMALL))
-    return out
-
-
-# ---- annexure (evidence) -----------------------------------------------------
 
 def _annexure_flowables(ctx: dict[str, Any]) -> list:
     inc: IncidentRecord = ctx["incident"]
     ch: ChainAttestation = ctx["chain"]
-    out: list = [PageBreak(),
-                 Paragraph("Barbarika Evidence Annexure", _TITLE), Spacer(1, 2),
-                 Paragraph("Supplementary to the CERT-In Incident Reporting Form — tamper-evident provenance for the reported incident.", _SMALL),
-                 Spacer(1, 6)]
+    s = ctx["submission"]
+    asys = s["affected_system"]
+    out: list = [
+        Paragraph("Detailed Incident Report", _TITLE),
+        Spacer(1, 1),
+        Paragraph("Barbarika Evidence Annexure to the CERT-In Incident Reporting Form — "
+                  "tamper-evident provenance and full technical analysis for the reported incident.", _SMALL),
+        Spacer(1, 6),
+    ]
 
-    out.append(Paragraph("A. Statutory basis", _H))
+    # 1. Executive summary
+    out.append(Paragraph("1. Executive summary", _H))
+    out.append(Paragraph(_exec_summary(ctx), _P))
+    out.append(Spacer(1, 6))
+
+    # 2. Statutory basis
+    out.append(Paragraph("2. Statutory basis", _H))
     out.append(Paragraph(certin.STATUTORY_NOTICE, _P))
-    dl = fmt_ist(ctx["deadline"]) if ctx["deadline"] else "—"
+    out.append(Spacer(1, 3))
     out.append(_kv_table([
         [Paragraph("Incident reference", _PB), Paragraph(inc.incident_uuid, _P)],
         [Paragraph("Statutory category", _PB), Paragraph(f'{ctx["numeral"]} — {ctx["type_label"]}', _P)],
-        [Paragraph("Noticed at (6-hour clock start)", _PB), Paragraph(fmt_ist(ctx["noticed"]), _P)],
-        [Paragraph("Reporting deadline (noticed + 6h)", _PB), Paragraph(dl, _P)],
-        [Paragraph("Confirmed by reviewer", _PB), Paragraph(f'{ctx["submission"]["reviewer"]["name"]} ({ctx["submission"]["reviewer"]["role"]}) at {fmt_ist(ctx["confirmed"])}', _P)],
+        [Paragraph("Filed by", _PB), Paragraph(f'{s["reporter"]["name_role"]} · {s["reporter"]["organization_name"]}', _P)],
+        [Paragraph("Confirmed by reviewer", _PB),
+         Paragraph(f'{s["reviewer"]["name"]} ({s["reviewer"]["role"]}) at {fmt_ist(ctx["confirmed"])}', _P)],
+    ], col0=55 * mm))
+    out.append(Spacer(1, 6))
+
+    # 3. Incident timeline (six-clock)
+    out.append(Paragraph("3. Incident timeline (IST)", _H))
+    dl = fmt_ist(ctx["deadline"]) if ctx["deadline"] else "—"
+    out.append(_kv_table([
+        [Paragraph("Occurrence (earliest evidence)", _PB), Paragraph(fmt_ist(ctx["occurrence"]), _P)],
+        [Paragraph("Detection (rule fired)", _PB), Paragraph(fmt_ist(ctx["detection"]), _P)],
+        [Paragraph("Noticed (6-hour clock start)", _PB), Paragraph(fmt_ist(ctx["noticed"]), _P)],
+        [Paragraph("Statutory reporting deadline", _PB), Paragraph(f'<b>{dl}</b> (noticed + 6h)', _P)],
+        [Paragraph("Confirmed by reviewer", _PB), Paragraph(fmt_ist(ctx["confirmed"]), _P)],
+        [Paragraph("Report generated", _PB), Paragraph(fmt_ist(ctx["generated_at"]), _P)],
     ], col0=60 * mm))
     out.append(Spacer(1, 6))
 
-    out.append(Paragraph("B. Detection rationale", _H))
+    # 4. Technical analysis / detection rationale
+    out.append(Paragraph("4. Technical analysis &amp; detection rationale", _H))
     rd = ctx["rule"]
     out.append(_kv_table([
-        [Paragraph("Rule", _PB), Paragraph(f'{inc.rule_title} <font size=7 color="#666">({inc.rule_id})</font>', _P)],
+        [Paragraph("Detection rule", _PB), Paragraph(f'{inc.rule_title} <font size=7 color="#666">({inc.rule_id})</font>', _P)],
         [Paragraph("Basis", _PB), Paragraph(rd.get("description", "—"), _P)],
-        [Paragraph("Detection", _PB), Paragraph(f'{rd.get("detection_type","—")}'
+        [Paragraph("Correlation", _PB), Paragraph(f'{rd.get("detection_type","—")}'
                    + (f', {rd["within_seconds"]}s window' if rd.get("within_seconds") else '')
                    + f' · {len(inc.events)} correlated events', _P)],
         [Paragraph("MITRE ATT&amp;CK", _PB), Paragraph("<br/>".join(ctx["mitre"]) or "—", _P)],
-        [Paragraph("Attacker IOCs (IP)", _PB), Paragraph(", ".join(ctx["ips"]) or "—", _P)],
+        [Paragraph("Attack vector", _PB), Paragraph(ctx["attack_vector"] or "—", _P)],
     ], col0=45 * mm))
     out.append(Spacer(1, 6))
 
-    out.append(Paragraph("C. Evidence provenance &amp; cryptographic integrity", _H))
+    # 5. Impact & scope
+    out.append(Paragraph("5. Impact &amp; scope", _H))
+    out.append(_kv_table([
+        [Paragraph("Affected system", _PB),
+         Paragraph(f'{ctx["affected_ip"]} · {asys["domain_url"]} · {asys["operating_system"]} · '
+                   f'{asys["application"]}', _P)],
+        [Paragraph("Location / hosting", _PB),
+         Paragraph(f'{asys["location"]}' + (f' · {asys["make_model_cloud"]}' if asys["make_model_cloud"] else ''), _P)],
+        [Paragraph("Mission-critical", _PB),
+         Paragraph(f'<b>{asys["mission_critical"]}</b> — {asys["mission_critical_note"]}', _P)],
+        [Paragraph("Impact assessment", _PB), Paragraph(s["incident"]["impact_summary"] or "Under assessment.", _P)],
+    ], col0=45 * mm))
+    out.append(Spacer(1, 6))
+
+    # 6. Indicators of compromise
+    out.append(Paragraph("6. Indicators of compromise (IOCs)", _H))
+    ioc_rows = [[Paragraph("<b>Type</b>", _SMALL), Paragraph("<b>Indicator</b>", _SMALL),
+                 Paragraph("<b>Context</b>", _SMALL)]]
+    for ip in ctx["ips"]:
+        ioc_rows.append([Paragraph("IPv4 (source)", _SMALL), Paragraph(ip, _SMALL),
+                         Paragraph("External source observed in evidence", _SMALL)])
+    for acct in _accounts(inc):
+        ioc_rows.append([Paragraph("Account", _SMALL), Paragraph(acct.replace("<", "&lt;"), _SMALL),
+                         Paragraph("Targeted / referenced account", _SMALL)])
+    ports = _ports(inc)
+    if ports:
+        ioc_rows.append([Paragraph("Port(s)", _SMALL), Paragraph(", ".join(ports), _SMALL),
+                         Paragraph("Observed in connection records", _SMALL)])
+    for tech in ctx["mitre"]:
+        ioc_rows.append([Paragraph("MITRE technique", _SMALL), Paragraph(tech, _SMALL),
+                         Paragraph("Mapped adversary behaviour", _SMALL)])
+    if len(ioc_rows) == 1:
+        ioc_rows.append([Paragraph("—", _SMALL), Paragraph("None extracted", _SMALL), Paragraph("", _SMALL)])
+    ioc_tbl = Table(ioc_rows, colWidths=[30 * mm, 60 * mm, 90 * mm], repeatRows=1)
+    ioc_tbl.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#999")), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BACKGROUND", (0, 0), (-1, 0), _GRAY),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3), ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]))
+    out.append(ioc_tbl)
+    out.append(Spacer(1, 6))
+
+    # 7. Evidence provenance & cryptographic integrity
+    out.append(Paragraph("7. Evidence provenance &amp; cryptographic integrity", _H))
     status = "PASS" if ch.ok else "FAIL"
     out.append(Paragraph(
         f'The compliance tool <b>independently re-verified</b> the evidence vault directly from the sealed '
@@ -266,8 +301,10 @@ def _annexure_flowables(ctx: dict[str, Any]) -> list:
         f'without breaking the chain.', _SMALL))
     out.append(Spacer(1, 6))
 
-    out.append(Paragraph("D. Chronological evidence log (unmasked, for CERT-In)", _H))
-    header = [Paragraph(f"<b>{h}</b>", _SMALL) for h in ("Seq", "Time (IST)", "Source", "Type", "Sev", "Raw log (unmasked)", "Row hash", "Sig")]
+    # 8. Chronological evidence log (unmasked)
+    out.append(Paragraph("8. Chronological evidence log (unmasked, for CERT-In)", _H))
+    header = [Paragraph(f"<b>{h}</b>", _SMALL) for h in
+              ("Seq", "Time (IST)", "Source", "Type", "Sev", "Raw log (unmasked)", "Row hash", "Sig")]
     data = [header]
     for e in inc.events:
         data.append([
@@ -286,6 +323,21 @@ def _annexure_flowables(ctx: dict[str, Any]) -> list:
     ]))
     out.append(tbl)
     out.append(Spacer(1, 6))
+
+    # 9. Response & remediation
+    out.append(Paragraph("9. Response &amp; remediation", _H))
+    steps = s["incident"]["remediation"]
+    if steps:
+        body = "<br/>".join(f'{i}. {step}' for i, step in enumerate(steps, 1))
+    else:
+        body = "Response actions in progress; to be supplemented in a follow-up communication."
+    out.append(_kv_table([
+        [Paragraph("Containment / eradication / recovery", _PB), Paragraph(body, _P)],
+        [Paragraph("Reporting status", _PB),
+         Paragraph("Submitted to CERT-In within the statutory 6-hour window; investigation ongoing.", _P)],
+    ], col0=55 * mm))
+    out.append(Spacer(1, 6))
+
     out.append(Paragraph(
         "<b>Human-in-the-loop:</b> this report was prepared for authorised submission by the named reviewer and "
         "is not auto-dispatched to CERT-In. Provenance re-verified by the Barbarika Compliance Engine from the "
@@ -293,27 +345,49 @@ def _annexure_flowables(ctx: dict[str, Any]) -> list:
     return out
 
 
-# ---- document ----------------------------------------------------------------
+# ---- document assembly -------------------------------------------------------
 
-def _decorate(canvas, doc):
+def _decorate_annex(canvas, doc):
+    # Page 1 is the official form; annexure pages are numbered from 2.
     canvas.saveState()
     canvas.setFont("Helvetica", 7)
     canvas.setFillColor(colors.HexColor("#888"))
     canvas.drawString(15 * mm, 8 * mm, "CONFIDENTIAL — CERT-In statutory incident report")
-    canvas.drawRightString(A4[0] - 15 * mm, 8 * mm, f"Page {doc.page}")
+    canvas.drawRightString(A4[0] - 15 * mm, 8 * mm, f"Page {doc.page + 1}")
     canvas.restoreState()
 
 
-def build_pdf(ctx: dict[str, Any], out_path: str) -> str:
-    inc: IncidentRecord = ctx["incident"]
+def _annexure_pdf(ctx: dict[str, Any]) -> BytesIO:
+    buf = BytesIO()
     doc = SimpleDocTemplate(
-        out_path, pagesize=A4,
+        buf, pagesize=A4,
         leftMargin=15 * mm, rightMargin=15 * mm, topMargin=14 * mm, bottomMargin=14 * mm,
-        title=f"CERT-In Incident Reporting Form — {inc.incident_uuid}",
-        author="Barbarika Compliance Engine",
-        subject=f"CERT-In {ctx['numeral']} incident report (statutory filing under IT Act Sec 70B(6))",
-        creator="Barbarika Compliance Engine", keywords="CERT-In, Annexure I, Section 70B",
     )
-    story = _form_flowables(ctx) + _annexure_flowables(ctx)
-    doc.build(story, onFirstPage=_decorate, onLaterPages=_decorate)
+    doc.build(_annexure_flowables(ctx), onFirstPage=_decorate_annex, onLaterPages=_decorate_annex)
+    buf.seek(0)
+    return buf
+
+
+def build_pdf(ctx: dict[str, Any], out_path: str) -> str:
+    """Stamp the authentic form (page 1) and append the detailed annexure pages."""
+    from . import formfill  # local import to avoid a cycle (formfill imports fmt_ist)
+
+    inc: IncidentRecord = ctx["incident"]
+    writer = PdfWriter()
+    # Attach the authentic form to the writer first, THEN stamp our overlay onto
+    # it (pypdf's reliable merge path), then append the annexure pages.
+    writer.append(PdfReader(str(formfill.FORM_PATH)))
+    writer.pages[0].merge_page(formfill.overlay(ctx).pages[0])
+    for page in PdfReader(_annexure_pdf(ctx)).pages:
+        writer.add_page(page)
+
+    writer.add_metadata({
+        "/Title": f"CERT-In Incident Reporting Form — {inc.incident_uuid}",
+        "/Author": "Barbarika Compliance Engine",
+        "/Subject": f"CERT-In {ctx['numeral']} incident report (statutory filing under IT Act Sec 70B(6))",
+        "/Creator": "Barbarika Compliance Engine",
+        "/Keywords": "CERT-In, Incident Reporting Form, Section 70B",
+    })
+    with open(out_path, "wb") as fh:
+        writer.write(fh)
     return out_path
