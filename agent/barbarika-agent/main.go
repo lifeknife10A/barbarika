@@ -7,12 +7,16 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"barbarika-agent/config"
 	"barbarika-agent/pkg/collector"
 	"barbarika-agent/pkg/crypto"
 	"barbarika-agent/pkg/egress"
+	"barbarika-agent/pkg/hostmetrics"
 )
+
+const agentVersion = "barbarika-agent/0.4"
 
 func main() {
 	fmt.Println("=================================================================")
@@ -51,6 +55,26 @@ func main() {
 
 	// 4. Start 5-second Heartbeat Watchdog in background goroutine
 	go heartbeatWatcher.Start(ctx)
+
+	// 4b. Start host-metrics reporter: the agent runs on the monitored host, so
+	//     it samples the host's own vitals (CPU/mem/load/os) and ships them to
+	//     Sentry's /host endpoint for the dashboard's System Health panel.
+	go func() {
+		hc := hostmetrics.New()
+		ticker := time.NewTicker(hostmetrics.SampleInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				snap := hc.Sample(cfg.AgentID, agentVersion, transportMode, 0)
+				if err := egressClient.SendHost(ctx, snap); err != nil {
+					log.Printf("[HostMetrics Warning] %v", err)
+				}
+			}
+		}
+	}()
 
 	// 5. Start Log Collector Manager (restart-durable sequence numbers)
 	collectorMgr, err := collector.NewManager(cfg)

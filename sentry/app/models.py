@@ -82,3 +82,32 @@ class IncidentOut(BaseModel):
     event_ids: list[int]
     detected_at: datetime
     created_at: datetime
+
+
+class HostSnapshot(BaseModel):
+    """Operational health of a monitored agent host (NOT evidence).
+
+    The agent runs on the host with full local access, so it reports the host's
+    own vitals alongside the log stream. These are volatile status pings — Sentry
+    keeps only the latest per agent and never seals or hash-chains them (they
+    carry no forensic value and would flood the evidence chain).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: str = Field(..., min_length=1, max_length=128)
+    os: str | None = Field(default=None, max_length=128)
+    kernel: str | None = Field(default=None, max_length=128)
+    cpu_percent: float | None = None
+    mem_used_mb: float | None = None
+    mem_total_mb: float | None = None
+    load1: float | None = None
+    rss_mb: float | None = None
+    uptime_s: float | None = None
+    agent_version: str | None = Field(default=None, max_length=64)
+    egress_mode: str | None = Field(default=None, max_length=64)
+    sequence: int | None = None
+
+
+class HostOut(HostSnapshot):
+    received_at: datetime

@@ -29,7 +29,7 @@ from fastapi.responses import StreamingResponse
 from . import crypto, db, mtls, signatures
 from .broadcast import Broadcaster
 from .detect import Detector, load_rules
-from .models import EventAck, EventIn, EventOut, IncidentOut
+from .models import EventAck, EventIn, EventOut, HostOut, HostSnapshot, IncidentOut
 
 logger = logging.getLogger("sentry")
 
@@ -51,6 +51,8 @@ class State:
     key: bytes
     detector: Detector
     broadcaster: Broadcaster
+    # Latest operational snapshot per agent host (volatile, not chained).
+    latest_host: dict[str, dict]
 
 
 state = State()
@@ -63,6 +65,7 @@ async def lifespan(app: FastAPI):
     state.detector = Detector(load_rules())
     state.broadcaster = Broadcaster()
     state.broadcaster.bind_loop(asyncio.get_running_loop())
+    state.latest_host = {}
     logger.info("sentry ready: %d detection rule(s) loaded", state.detector.rule_count)
     yield
 
@@ -128,6 +131,27 @@ def health() -> dict[str, object]:
         }
     finally:
         conn.close()
+
+
+@app.post("/host", status_code=204)
+def report_host(
+    snap: HostSnapshot,
+    agent_identity: str = Depends(mtls.require_client_identity),
+) -> None:
+    """Record an agent host's latest operational snapshot (overwrites prior).
+
+    Not sealed, not hash-chained — this is volatile status, not evidence. Keyed
+    by the mTLS-resolved identity so one agent cannot overwrite another's row.
+    """
+    stored = snap.model_dump()
+    stored["received_at"] = datetime.now(timezone.utc).isoformat()
+    state.latest_host[agent_identity] = stored
+
+
+@app.get("/host", response_model=list[HostOut])
+def list_host(_: str = Depends(mtls.require_client_identity)) -> list[HostOut]:
+    """The latest operational snapshot for each known agent host."""
+    return [HostOut(**snap) for snap in state.latest_host.values()]
 
 
 @app.post("/ingest", response_model=EventAck, status_code=200)
