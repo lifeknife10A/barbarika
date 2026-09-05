@@ -84,11 +84,18 @@ function HealthCard({ title, name, subtitle, state, tiles }) {
 }
 
 // ── incoming log feed (scrollable, minimal) ──────────────────────────────────
-function LogFeed({ logs }) {
+function LogFeed({ logs, flagged }) {
+  const total = logs.length;
+  const flaggedCount = logs.reduce((n, r) => (flagged[r.id] ? n + 1 : n), 0);
   return (
     <section className="flex flex-col min-h-0 rounded-xl bg-white border border-slate-200 shadow-sm overflow-hidden">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200">
-        <h3 className="text-[11px] font-bold uppercase tracking-widest text-slate-500">Incoming Log Feed</h3>
+        <div className="flex items-baseline gap-2">
+          <h3 className="text-[11px] font-bold uppercase tracking-widest text-slate-500">Incoming Log Feed</h3>
+          {flaggedCount > 0 && (
+            <span className="text-[10px] font-mono text-red-600">{flaggedCount} flagged</span>
+          )}
+        </div>
         <div className="flex items-center gap-1.5 text-slate-400 border border-slate-200 rounded-md px-2 py-1">
           <Search className="w-3 h-3" />
           <input
@@ -98,16 +105,28 @@ function LogFeed({ logs }) {
         </div>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-slate-100">
-        {logs.map((row) => (
-          <div key={row.id} className="flex items-center gap-3 px-4 py-2 hover:bg-slate-50/80">
-            <span className="font-mono text-[11px] text-slate-400 tabular-nums w-14 shrink-0">{row.time}</span>
-            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${LEVEL_DOT[row.level] || 'bg-slate-300'}`} />
-            <span className="font-mono text-[11px] text-slate-500 w-16 shrink-0 truncate">{row.service}</span>
-            <span className="text-[12px] text-slate-700 flex-1 min-w-0 truncate">{row.message}</span>
-            <span className="font-mono text-[11px] text-slate-400 tabular-nums w-28 shrink-0 truncate hidden lg:block">{row.source}</span>
-            <span className="font-mono text-[10px] text-slate-400 bg-slate-100 rounded px-1.5 py-0.5 shrink-0 hidden md:block">{row.digest}</span>
-          </div>
-        ))}
+        {logs.map((row) => {
+          const cat = flagged[row.id]; // set → this line tripped a CERT-In rule
+          return (
+            <div
+              key={row.id}
+              className={`flex items-center gap-3 px-4 py-2 ${cat ? 'bg-red-50/80' : 'hover:bg-slate-50/80'}`}
+              style={cat ? { boxShadow: 'inset 3px 0 0 #d94a4a' } : undefined}
+            >
+              <span className="font-mono text-[11px] text-slate-400 tabular-nums w-14 shrink-0">{row.time}</span>
+              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${cat ? 'bg-red-500' : (LEVEL_DOT[row.level] || 'bg-slate-300')}`} />
+              <span className="font-mono text-[11px] text-slate-500 w-16 shrink-0 truncate">{row.service}</span>
+              {cat && (
+                <span className="text-[9px] font-bold uppercase text-white bg-red-500 rounded px-1.5 py-0.5 shrink-0 tracking-wide">
+                  Cat {cat}
+                </span>
+              )}
+              <span className={`text-[12px] flex-1 min-w-0 truncate ${cat ? 'text-red-900 font-medium' : 'text-slate-700'}`}>{row.message}</span>
+              <span className="font-mono text-[11px] text-slate-400 tabular-nums w-28 shrink-0 truncate hidden lg:block">{row.source}</span>
+              <span className="font-mono text-[10px] text-slate-400 bg-slate-100 rounded px-1.5 py-0.5 shrink-0 hidden md:block">{row.digest}</span>
+            </div>
+          );
+        })}
       </div>
     </section>
   );
@@ -203,6 +222,16 @@ function ChartCard({ title, right, children, className = '' }) {
 export default function CleanWhiteDashboard() {
   const { model: m, live } = useLiveTelemetry();
 
+  // Map every event that belongs to a fired incident → its CERT-In category,
+  // so the feed can flag the exact lines that tripped a detection rule.
+  const flagged = useMemo(() => {
+    const map = {};
+    for (const inc of m.incidents || []) {
+      for (const eid of inc.eventIds || []) map[eid] = inc.category;
+    }
+    return map;
+  }, [m.incidents]);
+
   return (
     <div className="h-full min-h-0 flex flex-col gap-3 bg-slate-100/60 rounded-lg p-3 overflow-hidden">
 
@@ -267,7 +296,7 @@ export default function CleanWhiteDashboard() {
 
         {/* Right column: the log feed owns the whole lower section, scrollable */}
         <div className="lg:col-span-7 flex flex-col min-h-0">
-          <LogFeed logs={m.logs} />
+          <LogFeed logs={m.logs} flagged={flagged} />
         </div>
       </div>
 

@@ -64,6 +64,20 @@ export const systemModel = {
   //  aggregated from `logs` at render time, so there is no separate data source
   //  to keep here: real when connected, the mock feed below when offline.)
 
+  // ── Detection incidents (offline fallback). Live path fills this from
+  //    GET /incidents + the SSE `incident` stream. eventIds tie each incident
+  //    back to the log rows below, which the feed then flags by category. ──────
+  incidents: [
+    {
+      id: 'mock-iii-1',
+      category: 'iii',
+      ruleTitle: 'SSH brute force, successful authentication, then privileged sudo',
+      ruleId: 'afe8cbd2',
+      eventIds: [1055, 1054, 1045, 1047, 1048],
+      time: '18:13:48',
+    },
+  ],
+
   // ── Incoming log feed (dummy rows; the container is scrollable + minimal) ─────
   // level ∈ info | notice | warn | critical  (drives a single dot colour)
   logs: [
