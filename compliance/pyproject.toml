@@ -14,9 +14,13 @@ dependencies = [
     "pyyaml>=6.0",          # read the fired rule's description from rules/rules/v1/*.yaml
 ]
 
-# RUNTIME SYSTEM REQUIREMENT: LibreOffice (`soffice`) must be installed on the host
-# running this service — page 1 is produced by filling the official form's DOCX and
-# converting it to PDF with `soffice --headless --convert-to pdf` (see formdoc.py).
+# RUNTIME SYSTEM REQUIREMENT: LibreOffice WITH the Writer module (Debian/Ubuntu:
+# `apt-get install libreoffice-writer`) must be installed on the host running this
+# service. Page 1 is produced by filling the official form's DOCX cells (so text
+# wraps inside the cells) and converting it to PDF with `soffice --headless
+# --convert-to pdf` (see formdoc.py); the X marks are then stamped on the PDF
+# (formticks.py). libreoffice-core alone is NOT enough — without Writer, soffice
+# fails every conversion with "type detection failed".
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "httpx>=0.27"]

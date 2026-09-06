@@ -359,14 +359,24 @@ def _annexure_pdf(ctx: dict[str, Any]) -> BytesIO:
 
 
 def build_pdf(ctx: dict[str, Any], out_path: str) -> str:
-    """Stamp the authentic form (page 1) and append the detailed annexure pages."""
-    from . import formfill  # local import to avoid a cycle (formfill imports fmt_ist)
+    """Build the report PDF: fill the official form's Word cells (so text wraps
+    inside the cells), render it to PDF with LibreOffice, stamp the checkbox X
+    marks, then append the Detailed Incident Report annexure pages."""
+    import os
+    import tempfile
+
+    from . import formdoc, formticks  # local imports avoid an import cycle
 
     inc: IncidentRecord = ctx["incident"]
+    work = tempfile.mkdtemp(prefix="certin-form-")
+    docx_path = os.path.join(work, "form.docx")
+    formdoc.fill_form(ctx, docx_path)
+    form_pdf = formdoc.docx_to_pdf(docx_path, out_dir=work)
+    with open(form_pdf, "rb") as fh:
+        form_bytes = formticks.apply(fh.read(), ctx)
+
     writer = PdfWriter()
-    # Page 1: the authentic form filled by writing on its own baselines, then the
-    # Detailed Incident Report annexure pages.
-    for page in PdfReader(BytesIO(formfill.fill_form_page(ctx))).pages:
+    for page in PdfReader(BytesIO(form_bytes)).pages:
         writer.add_page(page)
     for page in PdfReader(_annexure_pdf(ctx)).pages:
         writer.add_page(page)

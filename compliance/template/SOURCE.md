@@ -17,18 +17,24 @@ below were fetched from CERT-In and are stored here for provenance and offline u
   `incident@cert-in.org.in` / Phone 1800-11-4949 / Fax 1800-11-6969. **Annexure I of the
   Directions is the list of the 20 incident TYPES (i–xx)** to be reported — NOT a
   fillable form. Statutory penalty for non-compliance: sub-section (7) of section 70B.
-- **Incident Reporting Form**: shipped here twice — the authentic
-  `CERT-In_Incident_Reporting_Form.pdf` (=`certinirform.pdf`) and a DOCX conversion of the
-  same form (`CERT-In_Incident_Reporting_Form.docx`). Both are filled, giving two outputs:
-  - **Submittable PDF** (`formfill.py`, page 1): writes our values **directly onto the
-    authentic PDF**, located by the form's OWN text — for each field it finds the printed
-    label, reads its baseline, and places the value on that exact baseline at the label's
-    font size (checkboxes get an `X`). Anchored to the form's own layout, so there are no
-    brittle hardcoded coordinates and values sit on the form's lines. Uses `pymupdf`.
-  - **Editable DOCX** (`formdoc.py`): fills the values into the form's real Word table
-    cells with `python-docx`, so the reporter gets an editable copy (alignment is inherent
-    to the cells). A `docx_to_pdf()` helper can render it via headless LibreOffice **where
-    `soffice` is available** — but the primary submittable PDF above needs no LibreOffice.
+- **Incident Reporting Form**: the page-1 source is the DOCX of the official form
+  (`CERT-In_Incident_Reporting_Form.docx`); the authentic PDF (`certinirform.pdf`) is kept
+  for provenance. The form is filled through the **document model**, not by drawing on a
+  flat PDF — because coordinate-drawn text has no notion of the form's table cell walls and
+  the form's vertical dividers slice through typed values. The pipeline:
+  1. **`build_template.py`** (one-time) repairs the raw DOCX conversion into a clean,
+     render-faithful template: it swaps the Wingdings checkbox glyph (U+F06F, tofu without
+     Wingdings) for U+2610 BALLOT BOX in DejaVu Sans, and rebuilds the "Incident Type" block
+     — which the conversion had flattened into one cell of scrambled run-on text — into a
+     clean single-column checklist of the 20 verbatim labels from `certin.INCIDENT_TYPES`.
+  2. **`formdoc.py`** fills our values into the form's real Word table cells with
+     `python-docx` (text wraps inside each cell — no divider ever cuts a value), then
+     converts the filled DOCX to PDF with headless LibreOffice (`docx_to_pdf`).
+  3. **`formticks.py`** stamps the checkbox **X** marks onto the rendered PDF with `pymupdf`,
+     each box located by searching the PDF for its label (I-am / Individual-Organization /
+     the matched Incident Type category). A small X in a box is position-tolerant.
+  The same filled DOCX is also served as an **editable** deliverable (`/report.docx`).
+  Requires system LibreOffice **with the Writer module** (`libreoffice-writer`).
   The form's fields are:
   - "I am: [ ] the effected entity  [ ] reporting incident affecting other entity"
   - **Contact Information of the Reporter**: Name & Role/Title (Individual/Organization);
