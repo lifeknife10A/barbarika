@@ -6,8 +6,9 @@ the canonical Sentry vault (`sentry/`, Anuvrat's domain), over Jash's mTLS
 `sentry/` backend (AES-GCM at rest, masking, hash chain with a receipt time + an
 append lock, SSE, and the detection engine already wired to `barbarika_rules`).
 
-> `SentryP/` (Anuvrat's earlier hand-built backend) is no longer the integration
-> target. It stays in the repo; the pipeline points at `sentry/`.
+> `SentryP/` (Anuvrat's earlier hand-built backend) was the integration target's
+> first prototype. It has been superseded by `sentry/` and removed from `main`
+> (preserved as the `archive/sentryp` tag); the pipeline points at `sentry/`.
 
 ## Topology
 

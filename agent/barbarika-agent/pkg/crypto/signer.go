@@ -30,7 +30,7 @@ func NewSigner() (*Signer, error) {
 // LoadOrCreateSigner returns a stable signer persisted at path: it loads the
 // key if the file exists, otherwise generates one and writes it (owner-only).
 // A stable key is what lets Sentry pin an identity to a public key across agent
-// restarts (see SentryP services/identity.py). With an empty path it stays
+// restarts (see sentry/app/signatures.py). With an empty path it stays
 // ephemeral (previous behaviour).
 func LoadOrCreateSigner(path string) (*Signer, error) {
 	if path == "" {
