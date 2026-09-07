@@ -14,9 +14,10 @@ append lock, SSE, and the detection engine already wired to `barbarika_rules`).
 ```
  agent/barbarika-agent (sender)                 sentry/ (vault + detection)
  ┌───────────────────────────┐   HTTP/JSON      ┌────────────────────────────────┐
- │ tail logs → LogEvent       │  POST /ingest    │ seal (AES-GCM) → hash chain → DB │
- │ SHA-256 + Ed25519 sign     │ ───────────────► │ evaluate rules → incidents       │
- │ persistent seq + boot_id   │  (mTLS 1.3)      │ mask reads · SSE · verify_chain  │
+ │ tail logs + FIM watch      │  POST /ingest    │ seal (AES-GCM) → hash chain → DB │
+ │   → LogEvent               │ ───────────────► │ evaluate rules → incidents       │
+ │ SHA-256 + Ed25519 sign     │  (mTLS 1.3)      │ mask reads · SSE · verify_chain  │
+ │ persistent seq + boot_id   │                  │                                  │
  └───────────────────────────┘                  └────────────────────────────────┘
 ```
 
@@ -65,7 +66,7 @@ Base URL: mTLS `https://127.0.0.1:8443` (demo) or dev-plaintext `http://…:8000
 | —                | `event_type`  | `classifyEventType` |
 | `Source`         | `source`      | prefixed with `<agent_id>/` |
 | —                | `severity`    | `severityFor(event_type)` |
-| —                | `category`    | `candidateCategory(event_type)` — which rules evaluate it |
+| —                | `category`    | `candidateCategory(event_type, raw_message)` — which rules evaluate it |
 | `Timestamp`      | `occurred_at`/`detected_at` | RFC3339 UTC |
 | `Sequence`/`Hash`| `payload.agent_sequence`/`agent_sha256` | provenance |
 | —                | `payload.agent_pubkey`/`agent_signature` | Ed25519 over the full canonical event (below) |
@@ -93,10 +94,40 @@ the key — see Next #3).
 ### `candidateCategory` → detection
 
 The agent tags each event with the CERT-In category whose rules should evaluate it
-(detection confirms an incident within that category). Today: SSH/sudo → `iii`
-(fires the existing rule). **Extend this map with Anishka as her iv/x/v rules land**
-— it is the bridge between telemetry and rules. Events with no category are still
-stored + chained, just not rule-evaluated.
+(detection confirms an incident within that category). This is the bridge between
+telemetry and Anishka's rules — see `rules/TELEMETRY_CONTRACT.md` for the exact
+signals each rule needs. Current routing:
+
+| tag | trigger | rule(s) it feeds | status |
+|-----|---------|------------------|--------|
+| `iii` | SSH failed/accepted login, `sudo` | brute-force (experimental) + privilege-escalation (stable) | **fires e2e** |
+| `x`   | `http_request` matching an app-layer-exploit signature (SQLi, traversal, `.git`/`.env`, cmd-injection, scanner UA) | `category_x_appserver_attack` (single) | **fires e2e** |
+| `iv`  | `http_request` defacement signature (wp-admin/login, webshell, `../../`) **or** `file_change` under a web root | `category_iv_web_defacement` (correlation) | **fires e2e** |
+| `v`   | `file_change` under a data dir, **or** any `canary_tampered` | `category_v_ransomware_burst` (correlation) | **fires e2e** |
+
+`x` wins ties over `iv`. Categories `iv` and `v` are *correlation* rules that need
+**two** arms in their window: `iv` = a web-exploit request **and** a web-root file
+change (≤120 s); `v` = a burst of ≥10 data-dir writes **and** a canary alteration
+(≤30 s). Both arms are now emitted — the nginx tailer supplies the web request and
+the **FIM watcher** (`collector/fim.go`) supplies the file-integrity events. Events
+with no category are still stored + chained, just not rule-evaluated. The routing
+signatures live in `mapping.go` (`reCatX`/`reCatIV`, plus the FIM path check); the
+authoritative match that raises an incident is always the rule regex in
+`rules/rules/v1`.
+
+### FIM telemetry (`source=<agent_id>/fim`)
+
+The watcher emits one event per file change, in the exact wire form the rules
+match (`rules/TELEMETRY_CONTRACT.md` §3–§4):
+
+```
+FIM <OP> <abs_path> sha256=<hex|->            event_type=file_change
+FIM CANARY <OP> <abs_path> sha256=<hex|->     event_type=canary_tampered
+```
+
+`<OP>` ∈ `CREATE WRITE RENAME REMOVE CHMOD`; `sha256` is the new content hash or
+`-` when removed/unreadable. `file_change` under a `FIM_WEB_ROOTS` path → `iv`,
+under a `FIM_DATA_DIRS` path → `v`; `canary_tampered` → `v` always.
 
 ## Configuration
 
@@ -105,6 +136,8 @@ stored + chained, just not rule-evaluated.
 | agent  | `SENTRY_URL` | `http://localhost:8000` (`https://…` enables mTLS) |
 | agent  | `AGENT_ID` / `BOOT_ID` | `primary-srv-01` / fresh v4 UUID per boot |
 | agent  | `AGENT_KEY_PATH` / `AGENT_SEQ_PATH` | `./agent_ed25519.key` / `./agent_seq.state` |
+| agent  | `FIM_WEB_ROOTS` / `FIM_DATA_DIRS` | `/var/www` / `/srv/data` (`:`/`,`-list; empty ⇒ FIM off) |
+| agent  | `FIM_CANARY_DIR` | optional; else canary is detected by filename (`.canary`/`canary_token`) |
 | agent  | `SENTRY_CA_CERT` / `SENTRY_CLIENT_CERT` / `SENTRY_CLIENT_KEY` | mTLS client identity |
 | sentry | `SENTRY_DEV_INSECURE=1` | dev only — skips the client-cert check |
 | sentry | `SENTRY_CERT_DIR` / `SENTRY_DB_PATH` / `SENTRY_KEY_PATH` | mTLS certs / DB / AES key |
@@ -123,8 +156,15 @@ integration/run_mtls_e2e.sh   # mTLS + cert-less-rejected + detection + benchmar
 - **Vault features (from `sentry/`)**: AES-GCM sealing at rest (no cleartext in the
   DB), masking by default, hash chain with `received_at` + a process-wide append
   lock, contiguous-sequence verification (`scripts/verify_chain.py`).
-- **Live detection**: category-tagged events are rule-evaluated; the Category (iii)
-  SSH brute-force rule fires an incident end-to-end (proven: 1 incident, 13 events).
+- **Live detection (Anishka's rules pack merged — 5 rules loaded)**: category-tagged
+  events are rule-evaluated. **All four live categories fire end-to-end over mTLS**:
+  (iii) SSH brute-force (13 evts), (x) app-layer exploitation (1 evt), (iv) website
+  intrusion — nginx exploit correlated with a web-root file change (2 evts), and (v)
+  ransomware burst — ≥10 data-dir writes correlated with a canary alteration (11 evts).
+- **FIM emitter (`collector/fim.go`)**: an fsnotify file-integrity watcher feeds the
+  shared collector channel as `source=fim` events (`file_change`/`canary_tampered`),
+  supplying the second correlation arm for (iv) and (v). Path → category routing
+  (web root ⇒ iv, data dir ⇒ v) lives in `candidateCategory`.
 - **mTLS 1.3** with Jash's PKI; cert-less client rejected.
 - **Receive-side Ed25519 verification + key pinning (ported into `sentry/`)**:
   `POST /ingest` verifies the signature over the raw body **across the full
@@ -138,8 +178,11 @@ integration/run_mtls_e2e.sh   # mTLS + cert-less-rejected + detection + benchmar
 
 ## Next
 
-1. **Rules (Anishka)**: extend `candidateCategory` + add the iv/x/v rules; they plug
-   into `sentry/`'s already-wired detector.
+1. **Sentry `status` filter (optional, deferred)**: `detect.load_rules` could load
+   only `status == "stable"` rules to avoid a double iii incident once a privileged
+   `sudo` line is in play. Deferred with the iii-completion work because it drops
+   the experimental brute-force rule that `sentry/tests/test_detect.py` pins — that
+   test + the e2e injection move together (add a `sudo` line, cite the stable rule).
 2. **Dashboard (Nandini)**: connect to `GET /events/stream` (SSE) — reconcile the
    UI's `telemetry`/`heartbeat` event names with Sentry's `event`/`incident`; it can
    now surface the real `signature_verified`/`signer_identity` in provenance.

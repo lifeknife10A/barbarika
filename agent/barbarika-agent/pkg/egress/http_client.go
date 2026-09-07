@@ -122,6 +122,33 @@ func (c *Client) SendHeartbeat(ctx context.Context, payload *models.HeartbeatPay
 	return nil
 }
 
+// SendHost posts the host's operational snapshot to Sentry's POST /host. This is
+// volatile status (CPU/mem/load/os), not evidence — Sentry keeps only the latest
+// and never chains it. Uses the same (mTLS) transport as events.
+func (c *Client) SendHost(ctx context.Context, snapshot any) error {
+	body, err := json.Marshal(snapshot)
+	if err != nil {
+		return fmt.Errorf("failed to marshal host snapshot: %w", err)
+	}
+	url := fmt.Sprintf("%s/host", c.cfg.SentryBaseURL)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("host snapshot egress to Sentry failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("sentry rejected host snapshot: HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
 // SendEvent dispatches a single normalized log event to Sentry's POST /ingest
 // endpoint in the EventIn shape (see integration/CONTRACT.md). Sentry assigns the
 // sequence + received_at, seals the content at rest, masks reads, and evaluates
@@ -134,7 +161,7 @@ func (c *Client) SendEvent(ctx context.Context, ev models.LogEvent) error {
 	eventType := classifyEventType(ev.Source, ev.RawContent)
 	severity := severityFor(eventType)
 	category := ""
-	if cat := candidateCategory(eventType); cat != nil {
+	if cat := candidateCategory(eventType, ev.RawContent); cat != nil {
 		category = *cat
 	}
 
