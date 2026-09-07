@@ -359,24 +359,14 @@ def _annexure_pdf(ctx: dict[str, Any]) -> BytesIO:
 
 
 def build_pdf(ctx: dict[str, Any], out_path: str) -> str:
-    """Build the report PDF: fill the official form's Word cells (so text wraps
-    inside the cells), render it to PDF with LibreOffice, stamp the checkbox X
-    marks, then append the Detailed Incident Report annexure pages."""
-    import os
-    import tempfile
-
-    from . import formdoc, formticks  # local imports avoid an import cycle
+    """Build the report PDF: page 1 is the authentic interactive CERT-In form
+    filled and flattened (values in real form fields, so text stays inside the
+    cells; non-editable), followed by the Detailed Incident Report annexure."""
+    from . import acroform  # local import avoids an import cycle
 
     inc: IncidentRecord = ctx["incident"]
-    work = tempfile.mkdtemp(prefix="certin-form-")
-    docx_path = os.path.join(work, "form.docx")
-    formdoc.fill_form(ctx, docx_path)
-    form_pdf = formdoc.docx_to_pdf(docx_path, out_dir=work)
-    with open(form_pdf, "rb") as fh:
-        form_bytes = formticks.apply(fh.read(), ctx)
-
     writer = PdfWriter()
-    for page in PdfReader(BytesIO(form_bytes)).pages:
+    for page in PdfReader(BytesIO(acroform.fill_form_pdf(ctx))).pages:
         writer.add_page(page)
     for page in PdfReader(_annexure_pdf(ctx)).pages:
         writer.add_page(page)

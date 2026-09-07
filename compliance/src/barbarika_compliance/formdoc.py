@@ -1,11 +1,10 @@
-"""Fill the authentic CERT-In Incident Reporting Form (DOCX) and convert it to PDF.
+"""Fill the authentic CERT-In Incident Reporting Form as an editable Word (DOCX).
 
-Page 1 of the report is the government form itself. Instead of stamping values at
-hand-measured coordinates onto the flat PDF (fragile), we fill the values into the
-form's real DOCX table cells — so LibreOffice lays each value out inside its cell
-and alignment is automatic — then render the filled DOCX back to PDF with
-`soffice --headless`. The checkbox ticks are added afterwards on the rendered PDF
-(see formticks.py), because the DOCX conversion scrambled the incident-type grid.
+The submittable PDF is produced from the interactive AcroForm template
+(see acroform.py). This module fills the same form's real Word table cells to
+provide an *editable* companion deliverable (the dashboard's "Editable .docx"
+button) — text wraps inside each cell, so nothing crosses a divider. No
+LibreOffice needed: python-docx only.
 
 The template DOCX is a single 15-row table; the cell map below was measured from
 compliance/template/CERT-In_Incident_Reporting_Form.docx.
@@ -13,10 +12,6 @@ compliance/template/CERT-In_Incident_Reporting_Form.docx.
 
 from __future__ import annotations
 
-import os
-import shutil
-import subprocess
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -137,38 +132,3 @@ def fill_form(ctx: dict[str, Any], out_docx: str) -> str:
 
     d.save(out_docx)
     return out_docx
-
-
-def docx_to_pdf(docx_path: str, out_dir: str | None = None) -> str:
-    """Convert a DOCX to PDF via headless LibreOffice. Returns the PDF path.
-
-    LibreOffice needs a writable per-user profile or headless convert aborts with
-    "User installation could not be completed"; we point it at a throwaway dir.
-    """
-    soffice = shutil.which("soffice") or shutil.which("libreoffice")
-    if not soffice:
-        raise RuntimeError(
-            "LibreOffice (soffice) is required to render the CERT-In form to PDF "
-            "but was not found on PATH. Install libreoffice on the service host.")
-    out_dir = out_dir or tempfile.mkdtemp(prefix="certin-form-")
-    profile = os.path.join(tempfile.mkdtemp(prefix="lo-profile-"), "profile")
-    cmd = [
-        soffice, f"-env:UserInstallation=file://{profile}",
-        "--headless", "--norestore", "--convert-to", "pdf",
-        "--outdir", out_dir, docx_path,
-    ]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-    pdf_path = os.path.join(out_dir, Path(docx_path).stem + ".pdf")
-    if not os.path.exists(pdf_path):
-        raise RuntimeError(
-            f"LibreOffice did not produce a PDF (exit {proc.returncode}).\n"
-            f"stdout: {proc.stdout}\nstderr: {proc.stderr}")
-    return pdf_path
-
-
-def render_form_pdf(ctx: dict[str, Any]) -> str:
-    """Fill the template and render it to a PDF; returns the PDF path."""
-    work = tempfile.mkdtemp(prefix="certin-form-")
-    docx_out = os.path.join(work, "form.docx")
-    fill_form(ctx, docx_out)
-    return docx_to_pdf(docx_out, out_dir=work)

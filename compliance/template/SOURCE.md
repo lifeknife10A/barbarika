@@ -17,25 +17,23 @@ below were fetched from CERT-In and are stored here for provenance and offline u
   `incident@cert-in.org.in` / Phone 1800-11-4949 / Fax 1800-11-6969. **Annexure I of the
   Directions is the list of the 20 incident TYPES (i–xx)** to be reported — NOT a
   fillable form. Statutory penalty for non-compliance: sub-section (7) of section 70B.
-- **Incident Reporting Form**: the page-1 source is the DOCX of the official form
-  (`CERT-In_Incident_Reporting_Form.docx`); the authentic PDF (`certinirform.pdf`) is kept
-  for provenance. The form is filled through the **document model**, not by drawing on a
-  flat PDF — because coordinate-drawn text has no notion of the form's table cell walls and
-  the form's vertical dividers slice through typed values. The pipeline:
-  1. **`build_template.py`** (one-time) repairs the raw DOCX conversion into a clean,
-     render-faithful template: it swaps the Wingdings checkbox glyph (U+F06F, tofu without
-     Wingdings) for U+2610 BALLOT BOX in DejaVu Sans, and rebuilds the "Incident Type" block
-     — which the conversion had flattened into one cell of scrambled run-on text — into a
-     clean single-column checklist of the 20 verbatim labels from `certin.INCIDENT_TYPES`.
-  2. **`formdoc.py`** fills our values into the form's real Word table cells with
-     `python-docx` (text wraps inside each cell — no divider ever cuts a value), then
-     converts the filled DOCX to PDF with headless LibreOffice (`docx_to_pdf`).
-  3. **`formticks.py`** stamps the checkbox **X** marks onto the rendered PDF with `pymupdf`,
-     each box located by searching the PDF for its label (I-am / Individual-Organization /
-     the matched Incident Type category). A small X in a box is position-tolerant.
-  The same filled DOCX is also served as an **editable** deliverable (`/report.docx`).
-  Requires system LibreOffice **with the Writer module** (`libreoffice-writer`).
-  The form's fields are:
+- **Incident Reporting Form** — the submittable PDF's page 1 is the **authentic INTERACTIVE
+  form** `cert_in_annexure_i_interactive.pdf` (an AcroForm with 44 named fields; its recorded
+  SHA-256 in `cert_in_annexure_i_interactive.sha256` is verified before every run). We fill
+  the form's real fields *by name* and flatten to a static page — so text sits inside the
+  cells (no divider ever cuts a value), the output is pixel-identical to the government form,
+  it stays on one page, and it needs **no LibreOffice** (pure `pypdf`). Pipeline:
+  1. **`acroform.py`** maps our re-verified incident context onto the 44 field names
+     (`build_field_values`), writes our own correctly-encoded Helvetica appearance streams
+     with **shrink-to-fit** so long single-line values are never clipped, draws a thin tick
+     for the matched checkboxes, and flattens the page (`fill_form_pdf`).
+  2. **`report.build_pdf`** appends the reportlab Detailed Incident Report annexure after the
+     flattened form page and locks the metadata.
+  The **editable** companion (`/report.docx`, "Editable .docx" button) is the same form
+  filled into a Word template's real cells with `python-docx` (`formdoc.py`, no LibreOffice);
+  `build_template.py` one-time-repairs that DOCX template (renderable checkbox glyph +
+  clean single-column Incident Type). The authentic flat `certinirform.pdf` is kept for
+  provenance. The interactive template + the flat PDF share the same field set:
   - "I am: [ ] the effected entity  [ ] reporting incident affecting other entity"
   - **Contact Information of the Reporter**: Name & Role/Title (Individual/Organization);
     Organization name (if any); Contact No.; Email; Address.

@@ -1,12 +1,10 @@
-"""End-to-end report: fill the form's DOCX -> LibreOffice PDF -> stamp X marks ->
-append the Detailed Incident Report annexure. Render-dependent tests skip when
-LibreOffice cannot convert (e.g. CI without libreoffice-writer)."""
+"""End-to-end report: fill+flatten the interactive CERT-In form (AcroForm, pure
+Python — no LibreOffice) then append the Detailed Incident Report annexure."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 from pypdf import PdfReader
 
 from barbarika_compliance import generate
@@ -15,13 +13,10 @@ from barbarika_compliance import generate
 def _generate(seeded_vault, submission_toml, tmp_path, monkeypatch):
     monkeypatch.setenv("COMPLIANCE_AUDIT_LOG", str(tmp_path / "audit.log.jsonl"))
     out_pdf = str(tmp_path / "report.pdf")
-    try:
-        return generate.generate_report(
-            db_path=seeded_vault["db"], submission_path=submission_toml,
-            out_pdf=out_pdf, incident="latest", key_path=seeded_vault["key"],
-        )
-    except RuntimeError as exc:  # LibreOffice/Writer not available in this env
-        pytest.skip(f"LibreOffice cannot render the form here: {exc}")
+    return generate.generate_report(
+        db_path=seeded_vault["db"], submission_path=submission_toml,
+        out_pdf=out_pdf, incident="latest", key_path=seeded_vault["key"],
+    )
 
 
 def _text(pdf_path: str) -> str:

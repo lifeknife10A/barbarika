@@ -1,14 +1,10 @@
-"""The editable DOCX of the authentic form, and the optional LibreOffice render."""
+"""The editable Word (.docx) companion of the authentic form."""
 
 from __future__ import annotations
 
-import shutil
-
 import docx
-import pytest
-from pypdf import PdfReader
 
-from barbarika_compliance import formdoc, generate
+from barbarika_compliance import generate
 
 
 def _fill(seeded_vault, submission_toml, tmp_path, monkeypatch):
@@ -41,14 +37,3 @@ def test_form_docx_is_a_real_docx(seeded_vault, submission_toml, tmp_path, monke
     d = docx.Document(res["docx"])
     assert len(d.tables) == 1
     assert len(d.tables[0].rows) == 15
-
-
-def test_docx_to_pdf_when_libreoffice_available(seeded_vault, submission_toml, tmp_path, monkeypatch):
-    if not (shutil.which("soffice") or shutil.which("libreoffice")):
-        pytest.skip("LibreOffice not installed")
-    res = _fill(seeded_vault, submission_toml, tmp_path, monkeypatch)
-    try:
-        pdf = formdoc.docx_to_pdf(res["docx"], out_dir=str(tmp_path))
-    except RuntimeError as exc:
-        pytest.skip(f"LibreOffice present but cannot convert in this environment: {exc}")
-    assert PdfReader(pdf).pages
