@@ -358,18 +358,22 @@ def _annexure_pdf(ctx: dict[str, Any]) -> BytesIO:
     return buf
 
 
-def build_pdf(ctx: dict[str, Any], out_path: str) -> str:
-    """Build the report PDF: page 1 is the authentic interactive CERT-In form
-    filled and flattened (values in real form fields, so text stays inside the
-    cells; non-editable), followed by the Detailed Incident Report annexure."""
+def build_pdf(ctx: dict[str, Any], out_path: str, *, flatten: bool = False) -> str:
+    """Build the report PDF: page 1 is the authentic interactive CERT-In form,
+    filled, followed by the Detailed Incident Report annexure.
+
+    flatten=False (default) keeps page 1's real form fields so the engineer can
+    edit a detail before filing; flatten=True paints them into the page for a
+    static, locked copy. The annexure is always static."""
     from . import acroform  # local import avoids an import cycle
 
     inc: IncidentRecord = ctx["incident"]
-    writer = PdfWriter()
-    for page in PdfReader(BytesIO(acroform.fill_form_pdf(ctx))).pages:
-        writer.add_page(page)
-    for page in PdfReader(_annexure_pdf(ctx)).pages:
-        writer.add_page(page)
+    # Start from the form writer (owns the AcroForm) so fields survive the merge,
+    # then append the annexure pages onto it.
+    writer = acroform.build_form_writer(ctx, flatten=flatten)
+    writer.append(PdfReader(_annexure_pdf(ctx)))
+    if not flatten:
+        writer.set_need_appearances_writer(True)
 
     writer.add_metadata({
         "/Title": f"CERT-In Incident Reporting Form — {inc.incident_uuid}",

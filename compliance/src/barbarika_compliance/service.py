@@ -46,47 +46,31 @@ def _env():
 
 
 @app.get("/report")
-def report(incident: str = Query("latest", description="incident_uuid or 'latest'")):
-    """The submittable PDF: authentic CERT-In form (page 1) + Detailed Incident Report."""
+def report(
+    incident: str = Query("latest", description="incident_uuid or 'latest'"),
+    flatten: bool = Query(False, description="true = static locked copy; false = editable form fields"),
+):
+    """The report PDF: authentic CERT-In form (page 1) + Detailed Incident Report.
+
+    Default is EDITABLE (page 1 keeps its real form fields, already filled, so the
+    engineer can tweak a detail in any PDF viewer before filing). Pass
+    ``?flatten=true`` for a static, locked copy.
+    """
     db = _require("COMPLIANCE_VAULT_DB")
     sub = _require("COMPLIANCE_SUBMISSION")
     out_pdf = os.path.join(tempfile.mkdtemp(prefix="certin-report-"), "report.pdf")
     try:
         res = generate.generate_report(
-            db_path=db, submission_path=sub, out_pdf=out_pdf, incident=incident, **_env())
+            db_path=db, submission_path=sub, out_pdf=out_pdf, incident=incident,
+            flatten=flatten, **_env())
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     uuid_short = res["incident"].incident_uuid[:8]
+    suffix = "_final" if flatten else ""
     return FileResponse(
         res["pdf"], media_type="application/pdf",
-        filename=f"CERT-In_Incident_Report_{uuid_short}.pdf",
-    )
-
-
-@app.get("/report.docx")
-def report_docx(incident: str = Query("latest", description="incident_uuid or 'latest'")):
-    """The editable Word copy: the authentic CERT-In form filled into its real cells.
-
-    No LibreOffice dependency — python-docx only. The engineer can review/adjust the
-    wording and 'Save as PDF' from Word if they want a document-rendered version.
-    """
-    db = _require("COMPLIANCE_VAULT_DB")
-    sub = _require("COMPLIANCE_SUBMISSION")
-    out_docx = os.path.join(tempfile.mkdtemp(prefix="certin-form-"), "form.docx")
-    try:
-        res = generate.generate_form_docx(
-            db_path=db, submission_path=sub, out_docx=out_docx, incident=incident, **_env())
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    uuid_short = res["incident"].incident_uuid[:8]
-    return FileResponse(
-        res["docx"],
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        filename=f"CERT-In_Incident_Form_{uuid_short}.docx",
+        filename=f"CERT-In_Incident_Report_{uuid_short}{suffix}.pdf",
     )

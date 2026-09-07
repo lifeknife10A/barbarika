@@ -25,15 +25,16 @@ below were fetched from CERT-In and are stored here for provenance and offline u
   it stays on one page, and it needs **no LibreOffice** (pure `pypdf`). Pipeline:
   1. **`acroform.py`** maps our re-verified incident context onto the 44 field names
      (`build_field_values`), writes our own correctly-encoded Helvetica appearance streams
-     with **shrink-to-fit** so long single-line values are never clipped, draws a thin tick
-     for the matched checkboxes, and flattens the page (`fill_form_pdf`).
+     with **shrink-to-fit** so long single-line values are never clipped, and draws a thin
+     tick for the matched checkboxes (`build_form_writer`).
   2. **`report.build_pdf`** appends the reportlab Detailed Incident Report annexure after the
-     flattened form page and locks the metadata.
-  The **editable** companion (`/report.docx`, "Editable .docx" button) is the same form
-  filled into a Word template's real cells with `python-docx` (`formdoc.py`, no LibreOffice);
-  `build_template.py` one-time-repairs that DOCX template (renderable checkbox glyph +
-  clean single-column Incident Type). The authentic flat `certinirform.pdf` is kept for
-  provenance. The interactive template + the flat PDF share the same field set:
+     form page and locks the metadata.
+  The output is **editable by default** — page 1 keeps its real form fields (already filled,
+  so no editing is *required*), so the engineer can adjust a detail in any PDF viewer before
+  filing. `?flatten=true` (the dashboard's "Final (locked)" button) paints the values into
+  the page and drops the form for a static, non-editable copy. The authentic flat
+  `certinirform.pdf` is kept for provenance. The interactive template + the flat PDF share
+  the same field set:
   - "I am: [ ] the effected entity  [ ] reporting incident affecting other entity"
   - **Contact Information of the Reporter**: Name & Role/Title (Individual/Organization);
     Organization name (if any); Contact No.; Email; Address.

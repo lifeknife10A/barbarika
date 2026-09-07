@@ -313,13 +313,17 @@ def _flatten_page(writer: PdfWriter) -> None:
         del writer._root_object[NameObject("/AcroForm")]
 
 
-def fill_form_pdf(ctx: dict[str, Any]) -> bytes:
-    """Return the official form as a flat (non-editable) one-page PDF, filled."""
+def build_form_writer(ctx: dict[str, Any], *, flatten: bool) -> PdfWriter:
+    """Return a PdfWriter whose page 1 is the official form, filled.
+
+    ``flatten=True`` paints the values into the page and drops the form (a static,
+    non-editable copy). ``flatten=False`` keeps the real form fields, so the
+    engineer can edit a detail in any PDF viewer before filing (values are already
+    complete — no editing is *required*)."""
     _verify_template()
     values = build_field_values(ctx)
-    reader = PdfReader(str(TEMPLATE_PATH))
     writer = PdfWriter()
-    writer.append(reader)  # keeps AcroForm tree, widgets, page content
+    writer.append(PdfReader(str(TEMPLATE_PATH)))  # keeps AcroForm, widgets, page content
     multiline = _multiline_fields(writer)
     resolved: dict[str, str] = {}
     for name, value in values.items():
@@ -332,7 +336,16 @@ def fill_form_pdf(ctx: dict[str, Any]) -> bytes:
     _restyle_widgets(writer)
     writer.update_page_form_field_values(writer.pages[0], resolved, auto_regenerate=False)
     _render_text_appearances(writer, resolved, multiline)
-    _flatten_page(writer)
+    if flatten:
+        _flatten_page(writer)
+    return writer
+
+
+def fill_form_pdf(ctx: dict[str, Any], *, flatten: bool = True) -> bytes:
+    """The official form as a one-page PDF (flat by default, or editable)."""
+    writer = build_form_writer(ctx, flatten=flatten)
+    if not flatten:
+        writer.set_need_appearances_writer(True)  # let viewers re-flow edited fields
     buf = BytesIO()
     writer.write(buf)
     return buf.getvalue()
