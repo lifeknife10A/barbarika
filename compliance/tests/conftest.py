@@ -62,6 +62,8 @@ def seeded_vault(tmp_path, monkeypatch):
             raw_message=(f"sshd[2211]: Failed password for admin from "
                          f"{ATTACKER_IP} port {4000 + i} ssh2"),
             payload={"src_ip": ATTACKER_IP, "user": "admin"},
+            signature_verified=True, signer_identity="agent@sentry",
+            signer_pubkey="ed25519:demo-pub",
         )
         event_ids.append(res["id"])
 
@@ -75,21 +77,14 @@ def seeded_vault(tmp_path, monkeypatch):
         raw_message=(f"sshd[2299]: Accepted password for admin from "
                      f"{ATTACKER_IP} port 4090 ssh2"),
         payload={"src_ip": ATTACKER_IP, "user": "admin"},
+        signature_verified=True, signer_identity="agent@sentry",
+        signer_pubkey="ed25519:demo-pub",
     )
     event_ids.append(res["id"])
 
-    # The live receive path stamps signature provenance columns that the base
-    # schema does not declare; mirror that here so the compliance reader (which
-    # expects them) exercises the same shape as production.
-    conn.execute("ALTER TABLE events ADD COLUMN signature_verified INTEGER NOT NULL DEFAULT 0")
-    conn.execute("ALTER TABLE events ADD COLUMN signer_identity TEXT")
-    conn.execute("ALTER TABLE events ADD COLUMN signer_pubkey TEXT")
-    conn.execute(
-        "UPDATE events SET signature_verified = 1, "
-        "signer_identity = 'agent@sentry', signer_pubkey = 'ed25519:demo-pub'"
-    )
-    conn.commit()
-
+    # The receive path stamps signature provenance columns (now native to the
+    # Sentry schema); the seeding above sets them so the compliance reader
+    # exercises the same shape as production.
     detected_iso = (base + timedelta(seconds=40)).isoformat()
     db.record_incident(
         conn,
