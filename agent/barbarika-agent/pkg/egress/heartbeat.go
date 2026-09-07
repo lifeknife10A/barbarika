@@ -3,12 +3,18 @@ package egress
 import (
 	"context"
 	"log"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"barbarika-agent/config"
 	"barbarika-agent/pkg/models"
 )
+
+// zeroHash is the last_event_hash sent before any event has been observed. Jash's
+// transport/heartbeat.schema.json requires a 64-char lowercase hex digest, so an
+// empty string would be rejected; the all-zero digest is the documented sentinel.
+var zeroHash = strings.Repeat("0", 64)
 
 // HeartbeatWatcher runs a 5-second ticker loop for system Watchdog telemetry.
 type HeartbeatWatcher struct {
@@ -22,8 +28,9 @@ type HeartbeatWatcher struct {
 // NewHeartbeatWatcher initializes the Watchdog ticker module.
 func NewHeartbeatWatcher(cfg *config.Config, client *Client) *HeartbeatWatcher {
 	return &HeartbeatWatcher{
-		cfg:    cfg,
-		client: client,
+		cfg:      cfg,
+		client:   client,
+		LastHash: zeroHash, // schema-valid until the first event is observed
 	}
 }
 

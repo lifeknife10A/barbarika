@@ -68,6 +68,9 @@ class EventOut(BaseModel):
     payload: dict[str, Any]
     row_hash: str
     masked: bool
+    signature_verified: bool = False
+    signer_identity: str | None = None
+    signer_pubkey: str | None = None
 
 
 class IncidentOut(BaseModel):

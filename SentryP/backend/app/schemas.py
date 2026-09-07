@@ -14,6 +14,15 @@ class EventOut(EventIn):
     id: int = Field(..., description="Database primary key.")
     prev_hash: Optional[str] = Field(None, description="Hash of the previous event in the chain.")
     cur_hash: str = Field(..., description="SHA-256 hash linking this event to the chain.")
+    signature_verified: bool = Field(
+        False, description="True if the agent's Ed25519 signature verified on receipt."
+    )
+    signer_pubkey: Optional[str] = Field(
+        None, description="Base64 Ed25519 public key that signed the event (if any)."
+    )
+    signer_identity: Optional[str] = Field(
+        None, description="Identity (mTLS CN or agent_id) the signing key is pinned to."
+    )
 
 class HeartbeatIn(BaseModel):
     agent_id: str

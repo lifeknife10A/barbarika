@@ -5,6 +5,8 @@ module here makes it available as ``backend.app.services.hash_chain`` which is
 used by the ``events`` router.
 """
 
-# Re-export the hash_chain module so that ``services.hash_chain`` works without
-# requiring an explicit import elsewhere.
+# Re-export the service modules so ``services.hash_chain`` / ``services.signatures``
+# work without requiring an explicit import elsewhere.
 from . import hash_chain  # noqa: F401
+from . import signatures  # noqa: F401
+from . import identity  # noqa: F401

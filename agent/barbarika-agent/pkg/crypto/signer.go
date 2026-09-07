@@ -14,9 +14,8 @@ type Signer struct {
 	PrivateKey ed25519.PrivateKey
 }
 
-// NewSigner initializes or loads an Ed25519 keypair.
+// NewSigner initializes a new ephemeral Ed25519 keypair in memory.
 func NewSigner() (*Signer, error) {
-	// Generate a new ephemeral keypair in memory (or load from disk if present)
 	pubKey, privKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate Ed25519 keypair: %w", err)
@@ -26,6 +25,34 @@ func NewSigner() (*Signer, error) {
 		PublicKey:  pubKey,
 		PrivateKey: privKey,
 	}, nil
+}
+
+// LoadOrCreateSigner returns a stable signer persisted at path: it loads the
+// key if the file exists, otherwise generates one and writes it (owner-only).
+// A stable key is what lets Sentry pin an identity to a public key across agent
+// restarts (see SentryP services/identity.py). With an empty path it stays
+// ephemeral (previous behaviour).
+func LoadOrCreateSigner(path string) (*Signer, error) {
+	if path == "" {
+		return NewSigner()
+	}
+	if data, err := os.ReadFile(path); err == nil {
+		if len(data) != ed25519.PrivateKeySize {
+			return nil, fmt.Errorf("key file %s: expected %d bytes, got %d", path, ed25519.PrivateKeySize, len(data))
+		}
+		privKey := ed25519.PrivateKey(data)
+		pubKey := privKey.Public().(ed25519.PublicKey)
+		return &Signer{PublicKey: pubKey, PrivateKey: privKey}, nil
+	}
+
+	s, err := NewSigner()
+	if err != nil {
+		return nil, err
+	}
+	if err := s.SavePrivateKey(path); err != nil {
+		return nil, fmt.Errorf("failed to persist agent key to %s: %w", path, err)
+	}
+	return s, nil
 }
 
 // Sign signs raw data using the private key and returns a Base64-encoded signature string.

@@ -1,6 +1,8 @@
 package crypto
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -29,5 +31,33 @@ func TestEd25519Signer_SignAndVerify(t *testing.T) {
 	isTamperedValid := signer.Verify(tamperedPayload, signatureBase64)
 	if isTamperedValid {
 		t.Fatalf("Signature verification MUST fail for tampered payload")
+	}
+}
+
+func TestLoadOrCreateSigner_PersistsStableKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent.key")
+
+	// First call generates and persists the key.
+	s1, err := LoadOrCreateSigner(path)
+	if err != nil {
+		t.Fatalf("create signer: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected key file to be written: %v", err)
+	}
+
+	// Second call must load the same key (stable identity across restarts).
+	s2, err := LoadOrCreateSigner(path)
+	if err != nil {
+		t.Fatalf("reload signer: %v", err)
+	}
+	if s1.PublicKeyBase64() != s2.PublicKeyBase64() {
+		t.Fatalf("reloaded public key differs: %s vs %s", s1.PublicKeyBase64(), s2.PublicKeyBase64())
+	}
+
+	// A signature from the reloaded key verifies against the original.
+	sig := s2.Sign([]byte("evidence"))
+	if !s1.Verify([]byte("evidence"), sig) {
+		t.Fatal("signature from persisted key failed to verify")
 	}
 }

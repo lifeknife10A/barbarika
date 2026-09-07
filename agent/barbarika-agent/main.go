@@ -21,17 +21,27 @@ func main() {
 
 	// 1. Load configuration
 	cfg := config.LoadConfig()
-	log.Printf("[Config] Agent ID: %s | Sentry Endpoint: %s", cfg.AgentID, cfg.SentryBaseURL)
+	log.Printf("[Config] Agent ID: %s | Boot ID: %s | Sentry Endpoint: %s", cfg.AgentID, cfg.BootID, cfg.SentryBaseURL)
 
-	// 2. Initialize Ed25519 Signer
-	signer, err := crypto.NewSigner()
+	// 2. Initialize Ed25519 Signer (stable key persisted at cfg.AgentKeyPath so
+	//    Sentry can pin this identity's public key across restarts).
+	signer, err := crypto.LoadOrCreateSigner(cfg.AgentKeyPath)
 	if err != nil {
 		log.Fatalf("[Crypto Error] Failed to initialize Ed25519 keypair: %v", err)
 	}
-	log.Printf("[Crypto] Ed25519 Signer initialized. Agent Public Key: %s...", signer.PublicKeyBase64()[:16])
+	log.Printf("[Crypto] Ed25519 signer ready (key: %s). Agent Public Key: %s...",
+		cfg.AgentKeyPath, signer.PublicKeyBase64()[:16])
 
 	// 3. Initialize HTTP Egress Client & Heartbeat Watchdog
-	egressClient := egress.NewClient(cfg, signer)
+	egressClient, err := egress.NewClient(cfg, signer)
+	if err != nil {
+		log.Fatalf("[Egress Error] Failed to initialize Sentry transport: %v", err)
+	}
+	transportMode := "plaintext HTTP"
+	if cfg.ClientCertPath != "" {
+		transportMode = "mTLS (TLS 1.3, client cert)"
+	}
+	log.Printf("[Egress] Sentry transport: %s -> %s", transportMode, cfg.SentryBaseURL)
 	heartbeatWatcher := egress.NewHeartbeatWatcher(cfg, egressClient)
 
 	// Context for graceful shutdown handling
@@ -41,8 +51,11 @@ func main() {
 	// 4. Start 5-second Heartbeat Watchdog in background goroutine
 	go heartbeatWatcher.Start(ctx)
 
-	// 5. Start Log Collector Manager
-	collectorMgr := collector.NewManager(cfg)
+	// 5. Start Log Collector Manager (restart-durable sequence numbers)
+	collectorMgr, err := collector.NewManager(cfg)
+	if err != nil {
+		log.Fatalf("[Collector Error] Failed to open sequence store: %v", err)
+	}
 	collectorMgr.Start(ctx)
 
 	// Listen for OS Interrupts (Ctrl+C / kill -9)
@@ -65,6 +78,12 @@ func main() {
 				// Pretty log telemetry
 				log.Printf("[EVENT #%d] Source: %-6s | SHA-256: %s | Payload: %s",
 					event.Sequence, event.Source, event.Hash[:16]+"...", event.RawContent)
+
+				// Ship the event to Sentry (POST /events). This is the joining
+				// wire between the agent and Anuvrat's ingestion backend.
+				if err := egressClient.SendEvent(ctx, event); err != nil {
+					log.Printf("[Egress Error] %v", err)
+				}
 			}
 		}
 	}()

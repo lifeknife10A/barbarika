@@ -63,16 +63,19 @@ def verify_chain(events: List[models.Event]) -> Tuple[bool, List[str]]:
         # Build the dictionary that mirrors the ingestion payload (excluding the
         # hash fields). The timestamp must be the ISO‑8601 string used when the
         # event was originally stored.
+        # Use the same canonical UTC/tz-naive timestamp string the ingest path
+        # hashed, so an untampered row recomputes to its stored hash.
+        ts_iso = services.hash_chain.to_utc_naive_iso(ev.timestamp)
         event_dict = {
             "agent_id": ev.agent_id,
             "sequence": ev.sequence,
-            "timestamp": ev.timestamp.isoformat(),
+            "timestamp": ts_iso,
             "source": ev.source,
             "event_type": ev.event_type,
             "payload": ev.payload,
         }
         expected = services.hash_chain.compute_hash(
-            prev_hash_by_agent[ev.agent_id], ev.timestamp.isoformat(), event_dict
+            prev_hash_by_agent[ev.agent_id], ts_iso, event_dict
         )
         if expected != ev.cur_hash:
             messages.append(
