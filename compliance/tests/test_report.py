@@ -3,6 +3,7 @@ annexure. Default output is editable (form fields intact); flatten=True locks it
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 from pypdf import PdfReader
@@ -72,6 +73,23 @@ def test_annexure_has_full_ir_sections(seeded_vault, submission_toml, tmp_path, 
     assert seeded_vault["attacker_ip"] in text              # unmasked IOC
     assert res["audit_ref"] in text                         # audit reference
     assert "T1110.001" in text                              # MITRE technique
+
+
+def test_tampered_vault_integrity_section_does_not_claim_chain_intact(
+        seeded_vault, submission_toml, tmp_path, monkeypatch):
+    # Mutate a hashed column so re-verification fails, then generate. The integrity
+    # section must flag [FAIL] and must NOT assert "chain intact"/"0 tampering" —
+    # that contradiction would misrepresent the evidence in a statutory document.
+    conn = sqlite3.connect(seeded_vault["db"])
+    conn.execute("UPDATE events SET severity = 'info' WHERE seq = 2")
+    conn.commit()
+    conn.close()
+    res = _generate(seeded_vault, submission_toml, tmp_path, monkeypatch, flatten=True)
+    text = _text(res["pdf"])
+    assert "[FAIL]" in text
+    assert "seq 2" in text                       # the actual finding is surfaced
+    assert "chain intact" not in text            # never asserted on a failed verify
+    assert "0 tampering" not in text
 
 
 def test_locked_pdf_metadata(seeded_vault, submission_toml, tmp_path, monkeypatch):

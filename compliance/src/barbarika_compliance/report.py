@@ -16,6 +16,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from typing import Any
+from xml.sax.saxutils import escape
 
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib import colors
@@ -285,11 +286,18 @@ def _annexure_flowables(ctx: dict[str, Any]) -> list:
 
     # 7. Evidence provenance & cryptographic integrity
     out.append(Paragraph("7. Evidence provenance &amp; cryptographic integrity", _H))
-    status = "PASS" if ch.ok else "FAIL"
+    # The verdict must track the actual attestation: on a failed re-verification we
+    # must NOT assert "chain intact · 0 tampering" — that would contradict [FAIL] and
+    # misrepresent the evidence in a statutory document. Surface the real finding.
+    if ch.ok:
+        verdict = (f'<b>[PASS] {ch.records} records · contiguous sequence · chain intact · '
+                   f'0 tampering</b>')
+    else:
+        verdict = (f'<b>{escape(ch.message)}</b> — the evidence chain did NOT re-verify; '
+                   f'integrity cannot be attested and this incident must be triaged before filing')
     out.append(Paragraph(
         f'The compliance tool <b>independently re-verified</b> the evidence vault directly from the sealed '
-        f'records (it did not trust an API): <b>[{status}] {ch.records} records · contiguous sequence · '
-        f'chain intact · 0 tampering</b>. Receive-side Ed25519 signatures verified: '
+        f'records (it did not trust an API): {verdict}. Receive-side Ed25519 signatures verified: '
         f'<b>{ch.signatures_verified}/{ch.signatures_total}</b>. Evidence at rest is AES-GCM sealed; the audit '
         f'reference for this authorised unsealing is <b>{ctx["audit_ref"]}</b>.', _P))
     out.append(Paragraph(
