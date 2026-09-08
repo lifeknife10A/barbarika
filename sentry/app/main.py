@@ -77,12 +77,14 @@ WATCHDOG_EVAL_INTERVAL_SECONDS = 1.0
 
 
 def _latest_intrusion_utc(conn: sqlite3.Connection) -> datetime | None:
-    """Wall-clock time of the most recent recorded incident, for the 120s
-    telemetry-loss correlation. Returns None if no incident has fired."""
+    """Wall-clock time an incident was most recently *recorded*, for the 120s
+    telemetry-loss correlation. Uses ``created_at`` (real receive-side wall clock,
+    always set) rather than the event's self-reported ``detected_at``, which for
+    replayed or demo logs can carry an arbitrary date. Returns None if none."""
     rows = db.list_incidents(conn, limit=1)
     if not rows:
         return None
-    stamp = rows[0]["detected_at"] or rows[0]["created_at"]
+    stamp = rows[0]["created_at"] or rows[0]["detected_at"]
     try:
         dt = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
     except ValueError:

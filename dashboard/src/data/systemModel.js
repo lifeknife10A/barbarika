@@ -48,6 +48,10 @@ export const systemModel = {
     ],
   },
 
+  // ── Dead-man's-switch watchdog (overlaid live from GET /watchdog + SSE) ───────
+  // Default HEALTHY so the offline/mock UI shows no false alarm.
+  watchdog: { overall: 'HEALTHY', worst: null, agents: [] },
+
   // ── Events per minute (idle = near-zero; that is correct, no events yet) ──────
   // The chart auto-scales to the data so idle traffic is still legible; the spike
   // threshold is shown as a caption, not a forced axis bound.

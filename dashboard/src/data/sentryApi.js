@@ -31,14 +31,18 @@ export const getHealth = () => getJSON('/health');
 export const getEvents = (limit = 200) => getJSON(`/events?limit=${limit}`);
 export const getIncidents = () => getJSON('/incidents');
 export const getHost = () => getJSON('/host'); // latest agent-host snapshot(s)
+export const getWatchdog = () => getJSON('/watchdog'); // per-agent dead-man's-switch liveness
 
 // Open the live SSE stream. Returns a close() fn. Sentry replays recent events
-// then streams live `event` / `incident` messages.
-export function openStream({ onEvent, onIncident, onOpen, onError }) {
+// then streams live `event` / `incident` / `watchdog` messages.
+export function openStream({ onEvent, onIncident, onWatchdog, onOpen, onError }) {
   const es = new EventSource(`${BASE}/events/stream`);
   if (onOpen) es.onopen = onOpen;
   es.addEventListener('event', (e) => { try { onEvent?.(JSON.parse(e.data)); } catch { /* ignore */ } });
   es.addEventListener('incident', (e) => { try { onIncident?.(JSON.parse(e.data)); } catch { /* ignore */ } });
+  // Watchdog state transitions (HEALTHY <-> TELEMETRY_LOSS) are broadcast one
+  // agent at a time as they flip; the hook merges them by identity.
+  es.addEventListener('watchdog', (e) => { try { onWatchdog?.(JSON.parse(e.data)); } catch { /* ignore */ } });
   if (onError) es.onerror = onError;
   return () => es.close();
 }
@@ -125,8 +129,47 @@ export function healthToSentryTiles(h, prevTiles) {
     byId.vault.unit = '';
     byId.vault.meta = `${h.incidents ?? 0} incidents · append-only`;
   }
-  if (byId.watchdog) {
-    byId.watchdog.meta = `mTLS: ${h.mtls || 'n/a'} · live`;
+  // NB: the watchdog tile's value/accent are owned by applyWatchdogTile (live
+  // dead-man's-switch state); don't touch them here.
+  return Object.values(byId);
+}
+
+// ── watchdog (dead-man's switch) ─────────────────────────────────────────────
+// Reduce the per-agent /watchdog rows to one overall status for the UI. Severity
+// ranks candidate Category (ii) review-required > telemetry loss > healthy.
+function wdRank(s) {
+  if (s?.requires_human_confirmation) return 2;
+  if (s?.state === 'TELEMETRY_LOSS') return 1;
+  return 0;
+}
+
+export function summarizeWatchdog(rows) {
+  const agents = Array.isArray(rows) ? rows : [];
+  let worst = null;
+  for (const s of agents) if (!worst || wdRank(s) > wdRank(worst)) worst = s;
+  const overall = worst && worst.state === 'TELEMETRY_LOSS' ? 'TELEMETRY_LOSS' : 'HEALTHY';
+  return { overall, worst, agents };
+}
+
+// Reflect the overall watchdog status into the Sentry-health "Watchdog" tile.
+export function applyWatchdogTile(tiles, summary) {
+  const byId = Object.fromEntries((tiles || []).map((t) => [t.id, { ...t }]));
+  const w = byId.watchdog;
+  if (w) {
+    if (summary.overall === 'TELEMETRY_LOSS') {
+      const cat2 = summary.worst?.requires_human_confirmation;
+      w.value = 'LOST';
+      w.unit = '';
+      w.meta = cat2 ? 'candidate Cat (ii) · review' : 'telemetry loss · missed beats';
+      w.accent = '#dc2626';
+      w.fill = 100;
+    } else {
+      w.value = 'LIVE';
+      w.unit = '';
+      w.meta = 'pulse OK · 5 s window';
+      w.accent = '#1baf7a';
+      w.fill = 100;
+    }
   }
   return Object.values(byId);
 }

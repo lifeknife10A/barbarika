@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { systemModel } from '../data/systemModel';
 import {
-  getHealth, getEvents, getIncidents, getHost, openStream,
+  getHealth, getEvents, getIncidents, getHost, getWatchdog, openStream,
   eventToRow, incidentToRecord, healthToSentryTiles, hostToSystem,
+  summarizeWatchdog, applyWatchdogTile,
 } from '../data/sentryApi';
 
 // Apply the latest host snapshot (if any) onto the System Health tiles + identity.
@@ -37,11 +38,26 @@ export function useLiveTelemetry() {
   const [live, setLive] = useState('connecting');
   const evTimes = useRef([]); // ISO strings of recent event receipts, for EPM
   const seen = useRef(new Set()); // event ids already shown (SSE replays overlap the initial fetch)
+  const wdAgents = useRef(new Map()); // identity → latest watchdog status, merged from fetch + SSE
 
   useEffect(() => {
     let cancelled = false;
     let closeStream = () => {};
     let healthTimer;
+
+    // Recompute the watchdog summary from the merged per-agent map and reflect it
+    // into both model.watchdog and the Sentry-health "Watchdog" tile.
+    const applyWatchdog = (m) => {
+      const summary = summarizeWatchdog([...wdAgents.current.values()]);
+      return {
+        ...m,
+        watchdog: summary,
+        sentryHealth: { ...m.sentryHealth, tiles: applyWatchdogTile(m.sentryHealth.tiles, summary) },
+      };
+    };
+    const mergeWatchdog = (rows) => {
+      for (const s of rows || []) if (s && s.identity) wdAgents.current.set(s.identity, s);
+    };
 
     const pushEvent = (ev) => {
       const key = ev.id ?? ev.seq;
@@ -60,39 +76,50 @@ export function useLiveTelemetry() {
       ...m, incidents: [incidentToRecord(inc), ...(m.incidents || [])].slice(0, 50),
     }));
 
+    const pushWatchdog = (status) => {
+      if (status?.identity) wdAgents.current.set(status.identity, status);
+      setModel((m) => applyWatchdog(m));
+    };
+
     async function boot() {
       try {
-        const [health, events, incidents, hosts] = await Promise.all([
+        const [health, events, incidents, hosts, watchdog] = await Promise.all([
           getHealth(), getEvents(200), getIncidents(), getHost().catch(() => []),
+          getWatchdog().catch(() => []),
         ]);
         if (cancelled) return;
         evTimes.current = events.map((e) => e.received_at || e.occurred_at).filter(Boolean);
         events.forEach((e) => { const k = e.id ?? e.seq; if (k != null) seen.current.add(k); });
+        mergeWatchdog(watchdog);
         const history = epmBuckets(evTimes.current);
-        setModel((m) => applyHost({
+        setModel((m) => applyWatchdog(applyHost({
           ...m,
           logs: events.map(eventToRow).slice(0, MAX_ROWS),
           incidents: incidents.map(incidentToRecord),
           epm: { ...m.epm, history, current: history[history.length - 1] },
           sentryHealth: { ...m.sentryHealth, tiles: healthToSentryTiles(health, m.sentryHealth.tiles) },
-        }, hosts));
+        }, hosts)));
         setLive('live');
 
         closeStream = openStream({
           onEvent: pushEvent,
           onIncident: pushIncident,
+          onWatchdog: pushWatchdog,
           onError: () => !cancelled && setLive('offline'),
           onOpen: () => !cancelled && setLive('live'),
         });
 
         healthTimer = setInterval(async () => {
           try {
-            const [h, hosts] = await Promise.all([getHealth(), getHost().catch(() => [])]);
+            const [h, hosts, watchdog] = await Promise.all([
+              getHealth(), getHost().catch(() => []), getWatchdog().catch(() => []),
+            ]);
             if (cancelled) return;
-            setModel((m) => applyHost(
+            mergeWatchdog(watchdog);
+            setModel((m) => applyWatchdog(applyHost(
               { ...m, sentryHealth: { ...m.sentryHealth, tiles: healthToSentryTiles(h, m.sentryHealth.tiles) } },
               hosts,
-            ));
+            )));
           } catch { setLive('offline'); }
         }, 5000);
       } catch {

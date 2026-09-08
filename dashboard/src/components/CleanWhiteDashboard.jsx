@@ -222,6 +222,40 @@ function IncidentsBar({ incidents }) {
   );
 }
 
+// ── dead-man's-switch banner (live watchdog: agent telemetry loss) ───────────
+// Category (ii) — compromise of critical systems — is surfaced HERE, not in the
+// detection incidents bar: it is the watchdog's review-required candidate raised
+// when host telemetry flatlines, never an auto-filed detection rule.
+function WatchdogBanner({ watchdog }) {
+  const w = watchdog?.worst;
+  if (!watchdog || watchdog.overall !== 'TELEMETRY_LOSS' || !w) return null;
+  const cat2 = !!w.requires_human_confirmation;
+  const who = w.agent_id || w.identity || 'agent';
+  return (
+    <div className={`rounded-xl bg-white border shadow-sm overflow-hidden ${cat2 ? 'border-red-300' : 'border-amber-300'}`}>
+      <div className={`flex items-center gap-2 px-4 py-1.5 border-b ${cat2 ? 'bg-red-50/70 border-red-100' : 'bg-amber-50/70 border-amber-100'}`}>
+        <span className={`w-2 h-2 rounded-full ${cat2 ? 'bg-red-500 animate-pulse' : 'bg-amber-500'}`} />
+        <span className={`text-[11px] font-bold uppercase tracking-widest ${cat2 ? 'text-red-700' : 'text-amber-700'}`}>
+          Dead-man's switch · telemetry loss
+        </span>
+        <span className="text-[11px] font-mono text-slate-500">{who} · {w.missed_heartbeats ?? 0} missed</span>
+      </div>
+      <div className="px-4 py-2 text-[12px] text-slate-700 leading-snug">
+        {cat2 ? (
+          <>
+            <span className="text-[10px] font-bold uppercase text-white rounded px-1.5 py-0.5 mr-1.5" style={{ background: '#b91c1c' }}>Cat ii</span>
+            <span className="font-semibold text-red-700">Candidate — compromise of critical systems.</span>{' '}
+            Host telemetry flatlined within 120&nbsp;s of high-confidence intrusion activity.
+            <span className="font-medium"> Requires human confirmation</span> before the 6-hour statutory clock is authoritative.
+          </>
+        ) : (
+          <>{w.reason || 'Telemetry drop without correlated intrusion evidence. Operational warning.'}</>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── chart card ────────────────────────────────────────────────────────────────
 function ChartCard({ title, right, children, className = '' }) {
   return (
@@ -277,6 +311,9 @@ export default function CleanWhiteDashboard() {
 
       {/* ── Active incidents (detection rules firing) ── */}
       <IncidentsBar incidents={m.incidents} />
+
+      {/* ── Dead-man's switch (live watchdog telemetry-loss / candidate Cat ii) ── */}
+      <WatchdogBanner watchdog={m.watchdog} />
 
       {/* ── Row 2: charts (left) + scrollable feed (right, fills height) ── */}
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-3">
