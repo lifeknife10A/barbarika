@@ -75,6 +75,8 @@ A client without a demo-CA-signed certificate never completes the TLS handshake.
 | `GET /events/{id}`   | One event; `?unmask=true` needs header `X-Unmask-Token` = `SENTRY_UNMASK_TOKEN` (audited). |
 | `GET /events/stream` | Server-Sent Events: replay recent, then live events + incidents (`?once=true` for a finite replay). |
 | `GET /incidents`     | Incidents recorded when a detection rule fired. |
+| `POST /heartbeat`    | mTLS-gated. Validates the shared heartbeat schema + Ed25519 signature (pubkey in `X-Public-Key`), refreshes the dead-man's-switch watchdog. Returns `{agent_id, sequence, signature_verified, state}`. |
+| `GET /watchdog`      | Per-agent liveness: `HEALTHY` / `TELEMETRY_LOSS` (+ candidate Category (ii) when correlated with a recent incident). Transitions also stream on `/events/stream` as `watchdog` events. |
 | `GET /health`        | status, `journal_mode`, counts, `rules_loaded`, mTLS mode. |
 
 ## What's implemented

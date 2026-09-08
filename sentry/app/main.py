@@ -7,10 +7,13 @@ Vertical slice for the Sentry backend milestone:
   GET  /events/{id}     one event; ?unmask=true is an authenticated, audited action.
   GET  /events/stream   Server-Sent Events (replay recent, then live).
   GET  /incidents       incidents recorded by the detector.
+  POST /heartbeat       signed 5s liveness ping; drives the dead-man's-switch watchdog.
+  GET  /watchdog        per-agent liveness (HEALTHY / TELEMETRY_LOSS + candidate cat).
   GET  /health          status, journal_mode, counts, loaded rule count.
 
-Still honest about scope: Ed25519 signature verification is agent-side and is
-NOT asserted here; this chain proves contiguity + tamper-evidence only.
+Ed25519 signatures are verified receive-side on both /ingest (per event) and
+/heartbeat (per ping); the hash chain additionally proves contiguity + tamper-
+evidence for stored events.
 """
 
 from __future__ import annotations
@@ -26,10 +29,19 @@ from datetime import datetime, timezone
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
-from . import crypto, db, mtls, signatures
+from . import crypto, db, mtls, signatures, watchdog
 from .broadcast import Broadcaster
 from .detect import Detector, load_rules
-from .models import EventAck, EventIn, EventOut, HostOut, HostSnapshot, IncidentOut
+from .models import (
+    EventAck,
+    EventIn,
+    EventOut,
+    HeartbeatAck,
+    HostOut,
+    HostSnapshot,
+    IncidentOut,
+    WatchdogStatusOut,
+)
 
 logger = logging.getLogger("sentry")
 
@@ -53,9 +65,55 @@ class State:
     broadcaster: Broadcaster
     # Latest operational snapshot per agent host (volatile, not chained).
     latest_host: dict[str, dict]
+    # Dead-man's-switch: per-agent heartbeat liveness.
+    watchdog: watchdog.WatchdogManager
+    watchdog_task: asyncio.Task | None
 
 
 state = State()
+
+# How often the background evaluator re-checks liveness and broadcasts flips.
+WATCHDOG_EVAL_INTERVAL_SECONDS = 1.0
+
+
+def _latest_intrusion_utc(conn: sqlite3.Connection) -> datetime | None:
+    """Wall-clock time of the most recent recorded incident, for the 120s
+    telemetry-loss correlation. Returns None if no incident has fired."""
+    rows = db.list_incidents(conn, limit=1)
+    if not rows:
+        return None
+    stamp = rows[0]["detected_at"] or rows[0]["created_at"]
+    try:
+        dt = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+async def _watchdog_loop() -> None:
+    """Periodically evaluate agent liveness; broadcast every state transition so a
+    dead-man's-switch flip reaches the dashboard live."""
+    while True:
+        try:
+            await asyncio.sleep(WATCHDOG_EVAL_INTERVAL_SECONDS)
+            conn = db.connect()
+            try:
+                latest = _latest_intrusion_utc(conn)
+            finally:
+                conn.close()
+            for st in state.watchdog.poll_transitions(latest_intrusion_utc=latest):
+                if st["state"] == watchdog.WatchdogState.TELEMETRY_LOSS.value:
+                    logger.warning(
+                        "WATCHDOG telemetry loss agent=%s disposition=%s",
+                        st.get("agent_id"), st.get("disposition"),
+                    )
+                state.broadcaster.publish(
+                    {"type": "watchdog", "data": WatchdogStatusOut(**st).model_dump(mode="json")}
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # never let the evaluator die on a transient error
+            logger.exception("watchdog evaluator iteration failed")
 
 
 @asynccontextmanager
@@ -66,8 +124,17 @@ async def lifespan(app: FastAPI):
     state.broadcaster = Broadcaster()
     state.broadcaster.bind_loop(asyncio.get_running_loop())
     state.latest_host = {}
+    state.watchdog = watchdog.WatchdogManager()
+    state.watchdog_task = asyncio.create_task(_watchdog_loop())
     logger.info("sentry ready: %d detection rule(s) loaded", state.detector.rule_count)
-    yield
+    try:
+        yield
+    finally:
+        state.watchdog_task.cancel()
+        try:
+            await state.watchdog_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(
@@ -152,6 +219,57 @@ def report_host(
 def list_host(_: str = Depends(mtls.require_client_identity)) -> list[HostOut]:
     """The latest operational snapshot for each known agent host."""
     return [HostOut(**snap) for snap in state.latest_host.values()]
+
+
+@app.post("/heartbeat", response_model=HeartbeatAck, status_code=202)
+async def heartbeat(
+    request: Request,
+    x_public_key: str | None = Header(default=None),
+    agent_identity: str = Depends(mtls.require_client_identity),
+) -> HeartbeatAck:
+    """Receive a signed agent heartbeat and refresh the dead-man's-switch watchdog.
+
+    Validates the payload against the shared heartbeat schema and verifies its
+    Ed25519 signature over the canonical preimage (public key in ``X-Public-Key``).
+    Liveness is keyed by the mTLS-resolved identity, so one agent cannot reset
+    another's timer. A missing/invalid signature is handled like ``/ingest``:
+    rejected outright when invalid, and required only in strict mode.
+    """
+    body = await request.json()
+    try:
+        payload = watchdog.HeartbeatPayload.from_mapping(body)
+    except watchdog.HeartbeatValidationError as exc:
+        raise HTTPException(status_code=422, detail=f"invalid heartbeat: {exc}") from exc
+
+    verified, sig_status = watchdog.verify_heartbeat_signature(payload, x_public_key)
+    if sig_status == watchdog.INVALID:
+        raise HTTPException(status_code=400, detail="invalid heartbeat signature")
+    if sig_status == watchdog.UNSIGNED and REQUIRE_SIGNATURE:
+        raise HTTPException(status_code=401, detail="heartbeat signature required")
+
+    live = state.watchdog.record(agent_identity, payload, signature_verified=verified)
+    return HeartbeatAck(
+        agent_id=payload.agent_id,
+        sequence=payload.sequence,
+        signature_verified=verified,
+        state=live.watchdog.state.value,
+    )
+
+
+@app.get("/watchdog", response_model=list[WatchdogStatusOut])
+def watchdog_status(_: str = Depends(mtls.require_client_identity)) -> list[WatchdogStatusOut]:
+    """Current liveness for every agent that has ever sent a heartbeat.
+
+    Evaluated live: an agent silent past the 3-missed-beats (15s) threshold reads
+    as ``TELEMETRY_LOSS``, and if an incident fired within the last 120s it carries
+    a *candidate* Category (ii) disposition awaiting human confirmation.
+    """
+    conn = db.connect()
+    try:
+        latest = _latest_intrusion_utc(conn)
+    finally:
+        conn.close()
+    return [WatchdogStatusOut(**st) for st in state.watchdog.snapshot(latest_intrusion_utc=latest)]
 
 
 @app.post("/ingest", response_model=EventAck, status_code=200)

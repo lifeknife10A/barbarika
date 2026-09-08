@@ -111,3 +111,31 @@ class HostSnapshot(BaseModel):
 
 class HostOut(HostSnapshot):
     received_at: datetime
+
+
+class HeartbeatAck(BaseModel):
+    """Response to an accepted ``POST /heartbeat``."""
+
+    status: str = "accepted"
+    agent_id: str
+    sequence: int
+    signature_verified: bool
+    state: str  # watchdog state after recording this beat (HEALTHY)
+
+
+class WatchdogStatusOut(BaseModel):
+    """Per-agent liveness as evaluated by the dead-man's-switch watchdog."""
+
+    identity: str
+    agent_id: str | None = None
+    state: str  # HEALTHY | TELEMETRY_LOSS
+    missed_heartbeats: int
+    last_sequence: int
+    last_seen_utc: datetime
+    signature_verified: bool
+    requires_human_confirmation: bool = False
+    # Present only in TELEMETRY_LOSS:
+    disposition: str | None = None
+    reason: str | None = None
+    statutory_category: str | None = None
+    proposed_noticed_at_utc: datetime | None = None

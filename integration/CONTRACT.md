@@ -191,6 +191,12 @@ integration/run_mtls_e2e.sh   # mTLS + cert-less-rejected + detection + benchmar
    identity is the generic `mtls-client` (uvicorn doesn't surface the peer cert).
    A TLS edge that sets `X-Client-Cert-CN` makes the identity the real certificate
    CN, so pinning is per-agent. Optionally require signatures (`SENTRY_REQUIRE_SIGNATURE=1`).
-4. **Heartbeat receive-side**: `sentry/` has no `/heartbeat` (watchdog is a
-   documented gap); the agent still emits heartbeats for the future watchdog.
+4. **Heartbeat receive-side**: DONE. `sentry/` now serves `POST /heartbeat`
+   (validates the shared schema, verifies the Ed25519 signature over the canonical
+   preimage, keyed by mTLS identity) and drives Jash's `transport/` watchdog. After
+   3 missed 5s beats (15s) an agent flips to `TELEMETRY_LOSS`; correlated with an
+   incident in the last 120s it surfaces a *candidate* Category (ii) awaiting human
+   confirmation. `GET /watchdog` exposes per-agent liveness and transitions are
+   broadcast on the SSE stream as `watchdog` events. The agent side was already
+   correct — no rebuild was required.
 5. Minor: `sentry/`'s `mask_text` over-masks `HH:MM:SS` as `«ip»` (safe over-mask).
