@@ -54,7 +54,9 @@ def test_flattened_form_page_is_the_authentic_form_with_values(seeded_vault, sub
     assert "Electronics Niketan" in page1                  # printed footer
     assert "Unauthorised access of IT systems/data" in page1  # matched category label
     assert seeded_vault["reviewer"] in page1               # Name & Role/Title value
-    assert seeded_vault["attacker_ip"] in page1            # IP Address value
+    # The affected-system IP is the VICTIM host (event source), never the attacker.
+    assert seeded_vault["internal_host"] in page1          # IP Address value = victim host
+    assert seeded_vault["attacker_ip"] not in page1        # attacker is an IOC, not the affected asset
     assert "Meridian FinServ" in page1                     # Organization name value
 
 

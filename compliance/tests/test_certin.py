@@ -37,10 +37,15 @@ def test_enrichment_has_mitre_and_vector_for_each_live_category():
         assert enr["attack_vector"].strip()
 
 
-def test_enrichment_iii_mentions_bruteforce_and_sudo():
-    mitre = " ".join(certin.enrichment("iii")["mitre"])
-    assert "T1110" in mitre       # brute force
-    assert "T1548" in mitre       # sudo elevation
+def test_enrichment_iii_is_bruteforce_base_without_hardcoded_sudo():
+    enr = certin.enrichment("iii")
+    mitre = " ".join(enr["mitre"])
+    assert "T1110" in mitre        # brute force
+    assert "T1078" in mitre        # valid accounts
+    # Sudo escalation must NOT be hardcoded at the category level — the report layer
+    # adds T1548.003 only when the evidence actually shows a sudo event.
+    assert "T1548" not in mitre
+    assert "sudo" not in str(enr["attack_vector"]).lower()
 
 
 def test_enrichment_unknown_is_safe_default():

@@ -104,29 +104,78 @@ def build_context(incident: IncidentRecord, submission: dict[str, Any],
     deadline_dt = (_parse(noticed) + timedelta(hours=6)) if _parse(noticed) else None
     aff_ip = submission["affected_system"]["ip_address"]
     if aff_ip == "auto":
-        # first internal-looking IP else first IP else blank
-        internal = [i for i in _all_ips(incident) if i.startswith(("10.", "192.168.", "172."))]
-        aff_ip = internal[0] if internal else (ips[0] if ips else "")
+        # The victim host, derived from the event source — NEVER an attacker IP that
+        # appears in the log text (`ips`). Blank when the evidence doesn't carry it.
+        aff_ip = _victim_ip(incident, ips)
     enr = certin.enrichment(cid)
     rd = rule_details(incident.rule_id)
+    # Attack vector + MITRE start from the category base and only gain the privileged
+    # sudo escalation when the evidence actually shows it, so we never over-claim.
+    mitre = list(enr.get("mitre", []))
+    attack_vector = str(enr.get("attack_vector", ""))
+    if _has_privilege_escalation(incident):
+        attack_vector = attack_vector.rstrip(". ") + \
+            ". Post-access privileged sudo execution was then observed on the host."
+        if not any(t.startswith("T1548.003") for t in mitre):
+            mitre.append("T1548.003 Abuse Elevation Control: Sudo and Sudo Caching")
     return {
         "incident": incident, "submission": submission, "chain": chain, "audit_ref": audit_ref,
         "cid": cid, "type_label": certin.category_label(cid), "numeral": certin.category_numeral(cid) if cid else "—",
-        "ips": ips, "affected_ip": aff_ip, "mitre": enr.get("mitre", []),
-        "attack_vector": enr.get("attack_vector", ""), "rule": rd,
+        "ips": ips, "affected_ip": aff_ip, "mitre": mitre,
+        "attack_vector": attack_vector, "rule": rd,
         "occurrence": occurrence, "detection": detection, "noticed": noticed,
         "confirmed": confirmed, "deadline": deadline_dt.isoformat() if deadline_dt else None,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
-def _all_ips(incident: IncidentRecord) -> list[str]:
-    out: list[str] = []
+def _is_private_ip(ip: str) -> bool:
+    """RFC 1918 / loopback / link-local — i.e. NOT a public 'external' address."""
+    if ip.startswith(("10.", "127.", "169.254.", "192.168.")):
+        return True
+    parts = ip.split(".")
+    if len(parts) == 4 and parts[0] == "172":
+        try:
+            return 16 <= int(parts[1]) <= 31
+        except ValueError:
+            return False
+    return False
+
+
+# Signals that privileged escalation actually happened, so the narrative may say so.
+_SUDO = re.compile(r"(?i)\bsudo\b|COMMAND=|\bpkexec\b|privileged (?:shell|command|sudo)")
+
+
+def _has_privilege_escalation(incident: IncidentRecord) -> bool:
+    """True only when a sudo / privilege-escalation event is present in the correlated
+    evidence. The brute-force rule does not assert sudo, so the report must not either
+    unless the evidence shows it (e.g. the privilege-escalation rule fired)."""
     for ev in incident.events:
-        for ip in _IPV4.findall(ev.raw_message or ""):
-            if ip not in out:
-                out.append(ip)
-    return out
+        if _SUDO.search(ev.raw_message or ""):
+            return True
+        et = (ev.event_type or "").lower()
+        if "sudo" in et or "privilege" in et or "escalat" in et:
+            return True
+    return False
+
+
+def _victim_ip(incident: IncidentRecord, attacker_ips: list[str]) -> str:
+    """The monitored (victim) host's own address — taken from the event *source*
+    (the host that produced the log), never from an attacker 'from <ip>' address
+    parsed out of the log text. Any IP that appears as an attacker source is
+    excluded, so a same-LAN attack can't put the attacker in the affected field.
+    Returns "" when the evidence does not carry the victim's IP (the operator then
+    supplies it via submission config rather than the report guessing wrong)."""
+    for ev in incident.events:
+        src = (ev.source or "").split("/")[0].strip()
+        if _IPV4.fullmatch(src) and src not in attacker_ips:
+            return src
+    for ev in incident.events:
+        for key in ("dst_ip", "dest_ip", "host_ip", "local_ip", "server_ip"):
+            v = (ev.payload or {}).get(key)
+            if isinstance(v, str) and _IPV4.fullmatch(v) and v not in attacker_ips:
+                return v
+    return ""
 
 
 # ---- shared table style ------------------------------------------------------
@@ -260,8 +309,10 @@ def _annexure_flowables(ctx: dict[str, Any]) -> list:
     ioc_rows = [[Paragraph("<b>Type</b>", _SMALL), Paragraph("<b>Indicator</b>", _SMALL),
                  Paragraph("<b>Context</b>", _SMALL)]]
     for ip in ctx["ips"]:
+        scope = ("Private/RFC 1918 source observed in evidence" if _is_private_ip(ip)
+                 else "External source observed in evidence")
         ioc_rows.append([Paragraph("IPv4 (source)", _SMALL), Paragraph(ip, _SMALL),
-                         Paragraph("External source observed in evidence", _SMALL)])
+                         Paragraph(scope, _SMALL)])
     for acct in _accounts(inc):
         ioc_rows.append([Paragraph("Account", _SMALL), Paragraph(acct.replace("<", "&lt;"), _SMALL),
                          Paragraph("Targeted / referenced account", _SMALL)])

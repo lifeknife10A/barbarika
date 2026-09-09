@@ -1,5 +1,19 @@
 import React, { useState } from 'react';
 import { Shield, FileText, Lock, Loader2 } from 'lucide-react';
+import { getIncidents } from '../data/sentryApi';
+
+// Resolve the incident to report on: the caller-supplied UUID, else the latest
+// incident's `incident_uuid` from Sentry's /incidents list. The compliance
+// /report endpoint keys off incident_uuid — passing the integer `id` returns
+// "incident not found" — so we always hand it the UUID.
+async function resolveIncidentUuid(explicitUuid) {
+  if (explicitUuid) return explicitUuid;
+  const incidents = await getIncidents();               // GET /api/incidents (Sentry)
+  if (!incidents || incidents.length === 0) {
+    throw new Error('No incident yet — trigger or await a detection first');
+  }
+  return incidents[0].incident_uuid;                    // latest first; UUID, not id
+}
 
 // Ask the compliance service for the CERT-In report PDF for the given incident
 // (or the latest) and stream it back as a browser download.
@@ -30,7 +44,8 @@ export default function TopNavbar({ latestIncidentId }) {
   const run = (kind) => async () => {
     setBusy(kind); setErr('');
     try {
-      await downloadReport(latestIncidentId, { flatten: kind === 'final' });
+      const uuid = await resolveIncidentUuid(latestIncidentId);
+      await downloadReport(uuid, { flatten: kind === 'final' });
     } catch (e) {
       setErr(e.message || 'report failed');
     } finally {

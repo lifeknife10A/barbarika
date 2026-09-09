@@ -56,11 +56,14 @@ def category_label(cid: str | None) -> str:
 # the standard technique mapping for the report's IOC / attack-vector fields.
 ENRICHMENT: dict[str, dict[str, object]] = {
     "iii": {
+        # Base evidence for the brute-force rule: guessing + a valid-account login.
+        # Privileged sudo escalation (T1548.003) is NOT asserted here — the report
+        # layer adds it only when a sudo event is actually present in the evidence
+        # (see report._has_privilege_escalation), so the narrative never over-claims.
         "mitre": ["T1110.001 Brute Force: Password Guessing",
-                  "T1078 Valid Accounts",
-                  "T1548.003 Abuse Elevation Control: Sudo and Sudo Caching"],
-        "attack_vector": "External SSH credential brute-force followed by successful "
-                         "authentication and privileged sudo elevation on the host.",
+                  "T1078 Valid Accounts"],
+        "attack_vector": "SSH credential brute-force followed by a successful "
+                         "authentication from the same source.",
     },
     "iv": {
         "mitre": ["T1190 Exploit Public-Facing Application",
