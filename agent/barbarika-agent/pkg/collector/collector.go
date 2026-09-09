@@ -2,6 +2,7 @@ package collector
 
 import (
 	"context"
+	"log"
 
 	"barbarika-agent/config"
 	"barbarika-agent/pkg/models"
@@ -40,11 +41,23 @@ func NewManager(cfg *config.Config) (*Manager, error) {
 // Start launches tailers for all configured log sources plus the FIM watcher
 // (if configured) in parallel goroutines, all feeding the shared EventChan.
 func (m *Manager) Start(ctx context.Context) {
+	active := make([]string, 0, len(m.cfg.LogSources)+2)
 	for source, path := range m.cfg.LogSources {
 		tailer := NewFileTailer(source, path)
 		go tailer.StartTailing(ctx, m.EventChan, m.seq)
+		active = append(active, source+"("+path+")")
+	}
+	// journald: keeps the feed alive on systemd-only hosts (e.g. Ubuntu 24.04
+	// without rsyslog, where /var/log/auth.log does not exist). Self-disables
+	// with a logged reason if journalctl is unavailable.
+	if m.cfg.JournaldEnabled {
+		go NewJournaldCollector().Start(ctx, m.EventChan, m.seq)
+		active = append(active, "journald")
 	}
 	if m.fim != nil {
 		m.fim.Start(ctx, m.EventChan, m.seq)
+		active = append(active, "fim")
 	}
+	log.Printf("[Collector] active sources: %v (a source that logs a 'Failed to "+
+		"open'/'not found' warning is unavailable on this host)", active)
 }

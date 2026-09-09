@@ -20,6 +20,12 @@ type Config struct {
 	MaxBatchSize      int
 	LogSources        map[string]string
 
+	// JournaldEnabled follows the systemd journal (`journalctl -f`) as a log
+	// source. On Ubuntu 24.04 without rsyslog the classic /var/log/auth.log does
+	// not exist, so this keeps the feed alive from the journal. Off with
+	// BARBARIKA_JOURNALD=0; self-disables where journalctl is unavailable.
+	JournaldEnabled bool
+
 	// File-integrity monitoring (FIM). The watcher emits `source=<id>/fim`
 	// events; a change under a WebRoot is a Category (iv) candidate (website
 	// defacement) and one under a DataDir a Category (v) candidate (ransomware
@@ -68,9 +74,10 @@ func LoadConfig() *Config {
 			"auth":  authLogPath,
 			"nginx": nginxLogPath,
 		},
-		CACertPath:     os.Getenv("SENTRY_CA_CERT"),
-		ClientCertPath: os.Getenv("SENTRY_CLIENT_CERT"),
-		ClientKeyPath:  os.Getenv("SENTRY_CLIENT_KEY"),
+		JournaldEnabled: getEnvOrDefault("BARBARIKA_JOURNALD", "1") != "0",
+		CACertPath:      os.Getenv("SENTRY_CA_CERT"),
+		ClientCertPath:  os.Getenv("SENTRY_CLIENT_CERT"),
+		ClientKeyPath:   os.Getenv("SENTRY_CLIENT_KEY"),
 
 		FIMWebRoots:  splitPaths(getEnvOrDefault("FIM_WEB_ROOTS", "/var/www")),
 		FIMDataDirs:  splitPaths(getEnvOrDefault("FIM_DATA_DIRS", "/srv/data")),
