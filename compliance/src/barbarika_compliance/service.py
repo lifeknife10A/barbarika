@@ -47,30 +47,45 @@ def _env():
 
 @app.get("/report")
 def report(
-    incident: str = Query("latest", description="incident_uuid or 'latest'"),
+    incident: str = Query("latest", description="incident_uuid or 'latest' (single-incident report)"),
+    incidents: str | None = Query(
+        None, description="comma-separated incident_uuids for one consolidated report "
+                          "across a multi-stage compromise (overrides `incident`)"),
     flatten: bool = Query(False, description="true = static locked copy; false = editable form fields"),
 ):
     """The report PDF: authentic CERT-In form (page 1) + Detailed Incident Report.
 
-    Default is EDITABLE (page 1 keeps its real form fields, already filled, so the
-    engineer can tweak a detail in any PDF viewer before filing). Pass
-    ``?flatten=true`` for a static, locked copy.
+    Single incident: ``?incident=<uuid>`` (or 'latest'). Consolidated: pass
+    ``?incidents=<uuid1>,<uuid2>,…`` to fold several incidents from the same
+    compromise into ONE report — every contributing Incident Type box ticked, one
+    timeline anchored to the earliest thing noticed, merged evidence/IOCs.
+
+    Default is EDITABLE (page 1 keeps its real form fields); ``?flatten=true`` for
+    a static, locked copy.
     """
     db = _require("COMPLIANCE_VAULT_DB")
     sub = _require("COMPLIANCE_SUBMISSION")
     out_pdf = os.path.join(tempfile.mkdtemp(prefix="certin-report-"), "report.pdf")
+    uuid_list = [u.strip() for u in incidents.split(",") if u.strip()] if incidents else []
     try:
-        res = generate.generate_report(
-            db_path=db, submission_path=sub, out_pdf=out_pdf, incident=incident,
-            flatten=flatten, **_env())
+        if len(uuid_list) > 1:
+            res = generate.generate_combined_report(
+                db_path=db, submission_path=sub, out_pdf=out_pdf, incidents=uuid_list,
+                flatten=flatten, **_env())
+        else:
+            res = generate.generate_report(
+                db_path=db, submission_path=sub, out_pdf=out_pdf,
+                incident=(uuid_list[0] if uuid_list else incident), flatten=flatten, **_env())
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    combined = res.get("combined")
+    stem = "CERT-In_Consolidated_Report" if combined else "CERT-In_Incident_Report"
     uuid_short = res["incident"].incident_uuid[:8]
     suffix = "_final" if flatten else ""
     return FileResponse(
         res["pdf"], media_type="application/pdf",
-        filename=f"CERT-In_Incident_Report_{uuid_short}{suffix}.pdf",
+        filename=f"{stem}_{uuid_short}{suffix}.pdf",
     )

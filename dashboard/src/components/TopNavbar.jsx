@@ -2,24 +2,28 @@ import React, { useState } from 'react';
 import { Shield, FileText, Lock, Loader2 } from 'lucide-react';
 import { getIncidents } from '../data/sentryApi';
 
-// Resolve the incident to report on: the caller-supplied UUID, else the latest
-// incident's `incident_uuid` from Sentry's /incidents list. The compliance
-// /report endpoint keys off incident_uuid — passing the integer `id` returns
-// "incident not found" — so we always hand it the UUID.
-async function resolveIncidentUuid(explicitUuid) {
-  if (explicitUuid) return explicitUuid;
+// Resolve which incident UUID(s) to report on. With several active incidents
+// (one multi-stage compromise), gather them ALL so the button produces one
+// consolidated report; with a single active incident, return just that one.
+// Always the `incident_uuid` (compliance keys off it — the integer `id` 404s).
+async function resolveIncidentUuids(explicitUuid) {
+  if (explicitUuid) return [explicitUuid];
   const incidents = await getIncidents();               // GET /api/incidents (Sentry)
   if (!incidents || incidents.length === 0) {
     throw new Error('No incident yet — trigger or await a detection first');
   }
-  return incidents[0].incident_uuid;                    // latest first; UUID, not id
+  return incidents.map((i) => i.incident_uuid);         // all active; UUIDs, not ids
 }
 
-// Ask the compliance service for the CERT-In report PDF for the given incident
-// (or the latest) and stream it back as a browser download.
-// `flatten=false` -> editable (form fields intact); `flatten=true` -> locked copy.
-async function downloadReport(incidentUuid, { flatten }) {
-  const params = new URLSearchParams({ incident: incidentUuid || 'latest' });
+// Ask the compliance service for the CERT-In report PDF and stream it back as a
+// browser download. Pass one uuid for a single-incident report, or several uuids
+// (from the same compromise) for ONE consolidated report with every Incident Type
+// box ticked. `flatten=false` -> editable; `flatten=true` -> locked copy.
+async function downloadReport(uuids, { flatten }) {
+  const list = Array.isArray(uuids) ? uuids : [uuids].filter(Boolean);
+  const params = new URLSearchParams();
+  if (list.length > 1) params.set('incidents', list.join(','));   // consolidated
+  else params.set('incident', list[0] || 'latest');               // single
   if (flatten) params.set('flatten', 'true');
   const res = await fetch(`/api/compliance/report?${params.toString()}`);
   if (!res.ok) {
@@ -44,8 +48,8 @@ export default function TopNavbar({ latestIncidentId }) {
   const run = (kind) => async () => {
     setBusy(kind); setErr('');
     try {
-      const uuid = await resolveIncidentUuid(latestIncidentId);
-      await downloadReport(uuid, { flatten: kind === 'final' });
+      const uuids = await resolveIncidentUuids(latestIncidentId);
+      await downloadReport(uuids, { flatten: kind === 'final' });
     } catch (e) {
       setErr(e.message || 'report failed');
     } finally {

@@ -144,10 +144,16 @@ def build_field_values(ctx: dict[str, Any]) -> dict[str, str | bool]:
             f'Impact: {s["incident"]["impact_summary"]}')
     put("incident_description", desc)
 
-    matched = CATEGORY_FIELD.get(ctx["cid"] or "")
+    # Incident Type is multi-select: tick every contributing category's checkbox
+    # (a single continuous compromise can manifest as several attack types). The
+    # single-incident path supplies exactly one category, so behaviour is unchanged.
+    categories = ctx.get("categories")
+    if not categories:
+        categories = [ctx["cid"]] if ctx.get("cid") else []
+    matched_fields = {CATEGORY_FIELD[c] for c in categories if c in CATEGORY_FIELD}
     for field_name in CATEGORY_FIELD.values():
-        v[field_name] = field_name == matched
-    v["incident_category_other"] = matched is None
+        v[field_name] = field_name in matched_fields
+    v["incident_category_other"] = len(matched_fields) == 0
     return v
 
 

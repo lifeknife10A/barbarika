@@ -126,6 +126,113 @@ def build_context(incident: IncidentRecord, submission: dict[str, Any],
         "occurrence": occurrence, "detection": detection, "noticed": noticed,
         "confirmed": confirmed, "deadline": deadline_dt.isoformat() if deadline_dt else None,
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        # single-incident report: one category, one contributing incident.
+        "combined": False, "categories": [cid] if cid else [], "incidents": [incident],
+    }
+
+
+# ---- consolidated (multi-incident) context -----------------------------------
+
+def _dedup_incidents(incidents: list[IncidentRecord]) -> list[IncidentRecord]:
+    """Drop any incident whose event-seq set is a subset of (or equal to) another's,
+    keeping the richer superset. This folds a base brute-force incident into the
+    privilege-escalation incident that shares the same SSH events, so the combined
+    report doesn't carry a redundant duplicate of the same evidence."""
+    live = [i for i in incidents if i.events]
+    seqsets = [frozenset(e.seq for e in inc.events) for inc in live]
+    keep: list[IncidentRecord] = []
+    for i, inc in enumerate(live):
+        s = seqsets[i]
+        subset_of_other = any(i != j and s <= seqsets[j] and s != seqsets[j] for j in range(len(live)))
+        dup_earlier = any(j < i and s == seqsets[j] for j in range(len(live)))
+        if subset_of_other or dup_earlier:
+            continue
+        keep.append(inc)
+    return keep or live
+
+
+def _merged_events(incidents: list[IncidentRecord]) -> list:
+    """Union of every contributing incident's events, deduped by seq, seq-sorted."""
+    by_seq: dict[int, Any] = {}
+    for inc in incidents:
+        for ev in inc.events:
+            by_seq.setdefault(ev.seq, ev)
+    return [by_seq[k] for k in sorted(by_seq)]
+
+
+def build_combined_context(incidents: list[IncidentRecord], submission: dict[str, Any],
+                           chain: ChainAttestation, audit_ref: str) -> dict[str, Any]:
+    """One consolidated Annexure I context across several incidents from the same
+    compromise. Ticks every contributing category, anchors the timeline to the
+    EARLIEST thing noticed (so the 6-hour clock isn't understated), merges the
+    evidence/IOCs, and reuses the same victim-IP + sudo-evidence gating as the
+    single path. Delegates to build_context when only one incident survives dedup."""
+    contributing = _dedup_incidents(incidents)
+    if not contributing:
+        raise ValueError("no incidents to consolidate")
+    if len(contributing) == 1:
+        return build_context(contributing[0], submission, chain, audit_ref)
+
+    # Categories in first-seen (detection) order, unique.
+    by_time = sorted(contributing, key=lambda i: (i.detected_at or "", i.created_at or ""))
+    categories: list[str] = []
+    for inc in by_time:
+        if inc.category and inc.category not in categories:
+            categories.append(inc.category)
+
+    merged = _merged_events(contributing)
+    detection_earliest = min((i.detected_at for i in contributing if i.detected_at), default=None)
+    created_earliest = min((i.created_at for i in contributing if i.created_at), default=None)
+    # ASCII-only: this title also fills the form's (Latin-1) description field.
+    title = "Consolidated compromise across " + ", ".join(
+        certin.category_numeral(c) for c in categories)
+    synthetic = IncidentRecord(
+        incident_uuid=by_time[0].incident_uuid, rule_id="(consolidated)", rule_title=title,
+        category=None, event_ids=[e.seq for e in merged],
+        detected_at=detection_earliest, created_at=created_earliest, events=merged)
+
+    ips = extract_ips(synthetic)
+    occurrence = (_earliest(synthetic, "occurred_at") or _earliest(synthetic, "detected_at")
+                  or _earliest(synthetic, "received_at"))
+    detection = _earliest(synthetic, "detected_at") or _earliest(synthetic, "received_at")
+    noticed = submission["incident"]["noticed_at"]
+    if noticed == "auto" or not noticed:
+        noticed = detection            # earliest across all contributing incidents
+    confirmed = submission["incident"]["confirmed_at"] or datetime.now(timezone.utc).isoformat()
+    deadline_dt = (_parse(noticed) + timedelta(hours=6)) if _parse(noticed) else None
+
+    aff_ip = submission["affected_system"]["ip_address"]
+    if aff_ip == "auto":
+        aff_ip = _victim_ip(synthetic, ips)
+
+    # Combined MITRE (deduped, category order) + one chained attack-vector narrative;
+    # sudo escalation added only when the merged evidence actually shows it.
+    mitre: list[str] = []
+    vectors: list[str] = []
+    for c in categories:
+        enr = certin.enrichment(c)
+        for t in enr.get("mitre", []):
+            if t not in mitre:
+                mitre.append(t)
+        av = str(enr.get("attack_vector", "")).rstrip(". ")
+        if av:
+            vectors.append(av)
+    attack_vector = "; then ".join(vectors) + ("." if vectors else "")
+    if _has_privilege_escalation(synthetic):
+        attack_vector += " Privileged sudo execution was observed on the host during the intrusion."
+        if not any(t.startswith("T1548.003") for t in mitre):
+            mitre.append("T1548.003 Abuse Elevation Control: Sudo and Sudo Caching")
+
+    numeral = ", ".join(certin.category_numeral(c) for c in categories)
+    type_label = "; ".join(certin.category_label(c) for c in categories)
+    return {
+        "incident": synthetic, "submission": submission, "chain": chain, "audit_ref": audit_ref,
+        "cid": None, "type_label": type_label, "numeral": numeral,
+        "ips": ips, "affected_ip": aff_ip, "mitre": mitre, "attack_vector": attack_vector,
+        "rule": {}, "occurrence": occurrence, "detection": detection, "noticed": noticed,
+        "confirmed": confirmed, "deadline": deadline_dt.isoformat() if deadline_dt else None,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "combined": True, "categories": categories, "incidents": contributing,
     }
 
 
@@ -254,8 +361,10 @@ def _annexure_flowables(ctx: dict[str, Any]) -> list:
     out.append(Paragraph("2. Statutory basis", _H))
     out.append(Paragraph(certin.STATUTORY_NOTICE, _P))
     out.append(Spacer(1, 3))
+    ref = ("<br/>".join(i.incident_uuid for i in ctx["incidents"])
+           if ctx.get("combined") else inc.incident_uuid)
     out.append(_kv_table([
-        [Paragraph("Incident reference", _PB), Paragraph(inc.incident_uuid, _P)],
+        [Paragraph("Incident reference" + ("s" if ctx.get("combined") else ""), _PB), Paragraph(ref, _P)],
         [Paragraph("Statutory category", _PB), Paragraph(f'{ctx["numeral"]} — {ctx["type_label"]}', _P)],
         [Paragraph("Filed by", _PB), Paragraph(f'{s["reporter"]["name_role"]} · {s["reporter"]["organization_name"]}', _P)],
         [Paragraph("Confirmed by reviewer", _PB),
@@ -278,16 +387,42 @@ def _annexure_flowables(ctx: dict[str, Any]) -> list:
 
     # 4. Technical analysis / detection rationale
     out.append(Paragraph("4. Technical analysis &amp; detection rationale", _H))
-    rd = ctx["rule"]
-    out.append(_kv_table([
-        [Paragraph("Detection rule", _PB), Paragraph(f'{inc.rule_title} <font size=7 color="#666">({inc.rule_id})</font>', _P)],
-        [Paragraph("Basis", _PB), Paragraph(rd.get("description", "—"), _P)],
-        [Paragraph("Correlation", _PB), Paragraph(f'{rd.get("detection_type","—")}'
-                   + (f', {rd["within_seconds"]}s window' if rd.get("within_seconds") else '')
-                   + f' · {len(inc.events)} correlated events', _P)],
-        [Paragraph("MITRE ATT&amp;CK", _PB), Paragraph("<br/>".join(ctx["mitre"]) or "—", _P)],
-        [Paragraph("Attack vector", _PB), Paragraph(ctx["attack_vector"] or "—", _P)],
-    ], col0=45 * mm))
+    if ctx.get("combined"):
+        # One subsection per contributing rule/category, each with its own
+        # evidence-gated wording (sudo added only where that incident shows it).
+        for k, cinc in enumerate(ctx["incidents"], 1):
+            crd = rule_details(cinc.rule_id)
+            cenr = certin.enrichment(cinc.category)
+            cmitre = list(cenr.get("mitre", []))
+            cav = str(cenr.get("attack_vector", ""))
+            if _has_privilege_escalation(cinc):
+                cav = cav.rstrip(". ") + ". Post-access privileged sudo execution was observed on the host."
+                if not any(t.startswith("T1548.003") for t in cmitre):
+                    cmitre.append("T1548.003 Abuse Elevation Control: Sudo and Sudo Caching")
+            out.append(Paragraph(
+                f'4.{k} &nbsp;{certin.category_numeral(cinc.category)} — '
+                f'{certin.category_label(cinc.category)}', _PB))
+            out.append(_kv_table([
+                [Paragraph("Detection rule", _PB), Paragraph(f'{cinc.rule_title} <font size=7 color="#666">({cinc.rule_id})</font>', _P)],
+                [Paragraph("Basis", _PB), Paragraph(crd.get("description", "—"), _P)],
+                [Paragraph("Correlation", _PB), Paragraph(f'{crd.get("detection_type","—")}'
+                           + (f', {crd["within_seconds"]}s window' if crd.get("within_seconds") else '')
+                           + f' · {len(cinc.events)} correlated events', _P)],
+                [Paragraph("MITRE ATT&amp;CK", _PB), Paragraph("<br/>".join(cmitre) or "—", _P)],
+                [Paragraph("Attack vector", _PB), Paragraph(cav or "—", _P)],
+            ], col0=45 * mm))
+            out.append(Spacer(1, 4))
+    else:
+        rd = ctx["rule"]
+        out.append(_kv_table([
+            [Paragraph("Detection rule", _PB), Paragraph(f'{inc.rule_title} <font size=7 color="#666">({inc.rule_id})</font>', _P)],
+            [Paragraph("Basis", _PB), Paragraph(rd.get("description", "—"), _P)],
+            [Paragraph("Correlation", _PB), Paragraph(f'{rd.get("detection_type","—")}'
+                       + (f', {rd["within_seconds"]}s window' if rd.get("within_seconds") else '')
+                       + f' · {len(inc.events)} correlated events', _P)],
+            [Paragraph("MITRE ATT&amp;CK", _PB), Paragraph("<br/>".join(ctx["mitre"]) or "—", _P)],
+            [Paragraph("Attack vector", _PB), Paragraph(ctx["attack_vector"] or "—", _P)],
+        ], col0=45 * mm))
     out.append(Spacer(1, 6))
 
     # 5. Impact & scope
