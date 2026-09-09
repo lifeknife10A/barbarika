@@ -85,19 +85,30 @@ def _match(rule: DetectionRule, ordered_events: list[NormalizedEvent]) -> RuleMa
 # sequence  (generalised from the original two-step evaluator)
 # --------------------------------------------------------------------------- #
 def _assign_prefix(
-    segment: list[NormalizedEvent], steps: tuple[SequenceStep, ...]
+    segment: list[NormalizedEvent],
+    steps: tuple[SequenceStep, ...],
+    consumed: set[UUID],
 ) -> list[NormalizedEvent] | None:
     """Greedily assign ``segment`` (time-ordered) to ``steps`` in order.
 
     Returns the consumed events if every step reached its ``min_count``, else
     ``None``. For a single step this is exactly "at least min_count events match",
     which is why the two-step behaviour is unchanged.
+
+    ``consumed`` holds prefix event ids already cited by an earlier completed match
+    for this same (rule, group); such events are skipped so they cannot be reused
+    to satisfy the prefix of a later match. This suppresses over-firing when a
+    cracked credential is reused shortly after (each later login would otherwise
+    re-cite the same original failed-login burst), while a genuinely new burst of
+    fresh failures still assembles its own match from unconsumed events.
     """
 
     index = 0
     counts = [0] * len(steps)
     used: list[list[NormalizedEvent]] = [[] for _ in steps]
     for event in segment:
+        if event.event_id in consumed:
+            continue
         while index < len(steps) and not _predicate_matches(steps[index].match, event):
             if counts[index] >= steps[index].min_count:
                 index += 1
@@ -127,6 +138,12 @@ def _evaluate_sequence(
     matches: list[RuleMatch] = []
     for group_events in grouped.values():
         ordered = _ordered(group_events)
+        # Prefix events cited by a completed match for this (rule, group) are
+        # consumed: a later terminal cannot re-cite them. Terminal events need no
+        # such tracking — each terminal candidate is visited once, so a match's
+        # terminal is unique by construction. Chronological iteration
+        # (``enumerate(ordered)``) guarantees earlier matches consume first.
+        consumed: set[UUID] = set()
         for terminal_index, terminal_event in enumerate(ordered):
             if not _predicate_matches(terminal_step.match, terminal_event):
                 continue
@@ -136,10 +153,11 @@ def _evaluate_sequence(
                 for event in ordered[:terminal_index]
                 if window_start <= event.occurred_at <= terminal_event.occurred_at
             ]
-            prefix = _assign_prefix(segment, steps[:-1])
+            prefix = _assign_prefix(segment, steps[:-1], consumed)
             if prefix is None:
                 continue
             matches.append(_match(rule, [*prefix, terminal_event]))
+            consumed.update(event.event_id for event in prefix)
     return matches
 
 

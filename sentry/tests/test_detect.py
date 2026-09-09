@@ -44,6 +44,29 @@ def test_bruteforce_then_success_records_one_incident(client):
     assert len(client.get("/incidents").json()) == 1
 
 
+def test_reused_credential_does_not_over_fire(client):
+    # 12 failed logins from one source, then THREE successful logins seconds apart:
+    # the real brute-force success plus the Cat iv/v scripts re-authenticating with
+    # the cracked password. The base rule must record exactly ONE incident, not one
+    # per later login (the pre-fix behaviour that produced duplicate iii incidents).
+    for i in range(12):
+        assert _post(
+            client,
+            f"sshd[42{i:02d}]: Failed password for root from 192.168.29.176 port 600{i:02d} ssh2",
+            i,
+        ).status_code == 200
+    for j, sec in enumerate((20, 23, 26)):
+        assert _post(
+            client,
+            f"sshd[4300]: Accepted password for root from 192.168.29.176 port 700{j} ssh2",
+            sec,
+        ).status_code == 200
+
+    incidents = client.get("/incidents").json()
+    base = [i for i in incidents if i["rule_id"] == "9f97782e-878a-42f9-babe-f70ef18bc9c7"]
+    assert len(base) == 1  # exactly one brute-force incident despite three reused logins
+
+
 def test_benign_traffic_records_no_incident(client):
     for i in range(3):
         _post(client, f"sshd[7{i}]: Failed password for admin from 198.51.100.9 port 1{i} ssh2", i)
